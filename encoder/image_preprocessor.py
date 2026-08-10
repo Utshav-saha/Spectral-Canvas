@@ -7,9 +7,9 @@ def preprocess_image(image_path):
     height = image.height
     width = image.width
 
-    print(img_format)
-    print(height)
-    print(width)
+    # print(img_format)
+    # print(height)
+    # print(width)
 
     return image
 
@@ -40,31 +40,33 @@ def resize_image(image, target_width= 16, target_height = 16):
 
     return background
 
-def main():
+def process(image_path, target_width=16, target_height=16, threshold=128):
 
-    image_path = "cat2.jpg"
+    
 
     grayscale_image = preprocess_image(image_path)
 
     processed_image = resize_image(
-        grayscale_image,64,64)
+        grayscale_image, target_width, target_height)
 
     image_array = np.array(processed_image)
 
-    print("After resize:")
-    print(image_array.shape)
+    # print("After resize:")
+    # print(image_array.shape)
 
-    binary_image = covert_to_binary2(image_array,threshold=128)
+    binary_image = covert_to_binary2(image_array,threshold=threshold)
 
-    print("Binary shape:")
-    print(binary_image.shape)
+    # print("Binary shape:")
+    # print(binary_image.shape)
 
-    print("Unique values:")
-    print(np.unique(binary_image))
+    # print("Unique values:")
+    # print(np.unique(binary_image))
 
-    print(binary_image)
-    np.savetxt("binary_image.txt", binary_image, fmt="%d")
+    # print(binary_image)
+    # np.savetxt("binary_image.txt", binary_image, fmt="%d")
+
+    return binary_image
 
 
 if __name__ == "__main__":
-    main()
+    process("images/cat2.jpg")
