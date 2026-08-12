@@ -100,4 +100,4 @@ def create_metadata_json(sampling_rate, rows, cols, row_frequencies,
 
 
 if __name__ == "__main__":
-    encode("images/cat2.jpg", target_width=64, target_height=64, output_file='output.wav',)
+    encode("images/black1.png", target_width=64, target_height=64, output_file='output.wav',)
