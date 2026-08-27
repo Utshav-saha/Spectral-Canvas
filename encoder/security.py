@@ -58,6 +58,26 @@ def encrypt(caller: str, receiver: str, pin: str, activation):
 
     return scrambled_activation
 
+def generate_mask(length: str, caller: str, receiver: str, pin: str):
+
+    encoded_key = derive_key(caller, receiver, pin)
+    encoded_data = hashlib.sha256(encoded_key + b"mask").digest()
+
+    # using first 8 bytes of the hash to create a seed 
+    seed = int.from_bytes(encoded_data, 'big')
+
+    rng = np.random.default_rng(seed)
+
+    mask = rng.standard_normal(size=length)
+
+    # [-1,1] er modhe scale kora
+    peak = np.max(np.abs(mask))
+
+    if peak > 0:
+        mask = mask / peak
+
+    return mask
+
 if __name__ == "__main__":
     caller = "12345678901"
     receiver = "10987654321"

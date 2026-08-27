@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.io.wavfile import write
 from image_preprocessor import process_gray 
-from security import encrypt  # was: process (binary)
+from security import encrypt, generate_mask
 import json
 
 def encode(image_path, target_width=16, target_height=16,
@@ -79,13 +79,33 @@ def encode(image_path, target_width=16, target_height=16,
         frame *= window
         frames.append(frame)
 
+
     final_audio = np.concatenate(frames)
 
     peak = np.max(np.abs(final_audio))
 
     # Normalization 
+
+    if(security_enabled):
+        target_peak = 0.5  # Lower peak nahole encrypt er sathe mile >1 hoye clip hoye jete pare
+    else:
+        target_peak = 0.8  # Higher peak for non-secure audio
+
+
     if peak > 0:
-        final_audio = 0.8 * final_audio / peak
+        final_audio = target_peak * final_audio / peak
+
+
+    if security_enabled:
+            
+            audio_length = len(final_audio)
+            mask = generate_mask(audio_length, caller, receiver, pin)
+            
+            # alpha = noise mask er strength  
+            alpha = 0.1 
+            
+            # y[n] = x[n] + alpha * m[n]
+            final_audio = final_audio + (alpha * mask)
 
     write(output_file, sampling_rate, final_audio)
 

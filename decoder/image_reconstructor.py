@@ -120,10 +120,10 @@ if __name__ == "__main__":
     IMG, N = "images/pepsi.jpg", 64
 
     # encode -> decode round trip
-    encode(IMG, target_width=N, target_height=N, output_file="rt.wav")
+    encode(IMG, target_width=N, target_height=N, security_enabled=True, caller="12345678901", receiver="10987654321", pin="1234", output_file="output_pepsi.wav")
 
     metadata = load_metadata("metadata.json")
-    sample_rate, audio = load_audio("rt.wav")
+    sample_rate, audio = load_audio("output_pepsi.wav")
     aligned = synchronize(audio, metadata["frame_samples"], metadata["columns"])
     normalized = normalize(decode(aligned, metadata))
 
@@ -136,5 +136,5 @@ if __name__ == "__main__":
     print("grey MAE (expect 0.0):", round(gray_error(recovered, source_gray), 4))
     print("levels recovered:", np.unique(recovered).size, "of", metadata["gray_levels"])
 
-    reconstruct("rt.wav", "metadata.json", output_file="recovered.png")
+    reconstruct("output_pepsi.wav", "metadata.json", output_file="recovered.png")
     print("saved recovered.png")
