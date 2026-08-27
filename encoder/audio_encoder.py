@@ -12,7 +12,8 @@ def encode(image_path, target_width=16, target_height=16,
            security_enabled=False,
            caller=None,
            receiver=None,
-           pin=None):
+           pin=None,
+           alpha = 0.1):
             # was: ..., threshold=128):
 
     # brightness -> amplitude map (float 0.0..1.0), instead of a 0/1 binary image
@@ -85,7 +86,7 @@ def encode(image_path, target_width=16, target_height=16,
     peak = np.max(np.abs(final_audio))
 
     # Normalization 
-
+ 
     if(security_enabled):
         target_peak = 0.5  # Lower peak nahole encrypt er sathe mile >1 hoye clip hoye jete pare
     else:
@@ -101,8 +102,7 @@ def encode(image_path, target_width=16, target_height=16,
             audio_length = len(final_audio)
             mask = generate_mask(audio_length, caller, receiver, pin)
             
-            # alpha = noise mask er strength  
-            alpha = 0.1 
+            # alpha = noise mask er strength 
             
             # y[n] = x[n] + alpha * m[n]
             final_audio = final_audio + (alpha * mask)
@@ -111,12 +111,12 @@ def encode(image_path, target_width=16, target_height=16,
 
     create_metadata_json(sampling_rate, rows, cols,
                          row_frequencies, f_min, f_max, frame_duration,
-                         frame_samples, gray_levels, bin_snap, security_enabled)
+                         frame_samples, gray_levels, bin_snap, security_enabled, alpha)
 
 
 def create_metadata_json(sampling_rate, rows, cols, row_frequencies,
                          f_min, f_max, frame_duration,
-                         frame_samples, gray_levels, bin_snap, security_enabled):
+                         frame_samples, gray_levels, bin_snap, security_enabled, alpha):
     metadata = {
         "sample_rate": sampling_rate,
         "rows": rows,
@@ -125,7 +125,7 @@ def create_metadata_json(sampling_rate, rows, cols, row_frequencies,
 
         "f_min": f_min,
         "f_max": f_max,
-
+        "alpha": alpha,
         "frame_duration": frame_duration,
         "frame_samples": frame_samples,
 
@@ -134,7 +134,8 @@ def create_metadata_json(sampling_rate, rows, cols, row_frequencies,
         "bin_snap": bin_snap,
         "window": "hann",
         "security_enabled": security_enabled,
-        "frequency_mapping": "top_high to bottom_low"
+        "frequency_mapping": "top_high to bottom_low",
+        "alpha": alpha
         }
 
     with open("metadata.json", "w") as file:
@@ -146,4 +147,4 @@ if __name__ == "__main__":
     caller = "12345678901"
     receiver = "10987654321"
     pin = "1234"
-    encode("images/pepsi.jpg", target_width=64, target_height=64,security_enabled=True, caller=caller, receiver=receiver, pin=pin, output_file='output_pepsi.wav')
+    encode("images/pepsi.jpg", target_width=64, target_height=64,security_enabled=True, caller=caller, receiver=receiver, pin=pin, alpha = .5, output_file='output_pepsi.wav')

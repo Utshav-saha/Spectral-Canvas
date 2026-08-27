@@ -70,6 +70,7 @@
     ],
     "f_min": 1000,
     "f_max": 8000,
+    "alpha": 0.6,
     "frame_duration": 0.1,
     "frame_samples": 4410,
     "encoding_mode": "grayscale",

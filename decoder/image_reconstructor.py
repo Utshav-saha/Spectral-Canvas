@@ -101,7 +101,7 @@ def reconstruct(wav_path, metadata_path="metadata.json",
         if metadata.get("security_enabled", True):
             if caller is None or receiver is None or pin is None:
                 raise ValueError("Caller, receiver and PIN are required to decode a secured file.")
-            aligned = remove_mask(aligned, caller, receiver, pin)
+            aligned = remove_mask(aligned, caller, receiver, pin, alpha=metadata.get("alpha", 0.1))
 
     magnitude_matrix = decode(aligned, metadata)
     normalized = normalize(magnitude_matrix)
@@ -125,7 +125,7 @@ if __name__ == "__main__":
     caller, receiver, pin = "12345678901", "10987654321", "1234"
 
     encode(IMG, target_width=N, target_height=N, security_enabled=True,
-           caller=caller, receiver=receiver, pin=pin, output_file="output_pepsi.wav")
+           caller=caller, receiver=receiver, pin=pin, alpha = .6, output_file="output_pepsi.wav")
 
     recovered = reconstruct("output_pepsi.wav", "metadata.json",
                              output_file="recovered.png",
