@@ -114,8 +114,8 @@ def reconstruct(wav_path, metadata_path="metadata.json",
 
 if __name__ == "__main__":
 
-    from audio_encoder_2 import encode
-    from image_preprocessor_2 import process_gray
+    from audio_encoder import encode
+    from image_preprocessor import process_gray
 
     IMG, N = "images/pepsi.jpg", 64
 

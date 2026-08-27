@@ -13,13 +13,14 @@ def preprocess_image(image_path):
 
     return image
 
-def covert_to_binary1(image, threshold=128):
-    binary_image = np.where(image >= threshold, 1, 0)
-    return binary_image
+# def convert_to_binary1(image, threshold=128):
+#     binary_image = np.where(image >= threshold, 1, 0)
+#     return binary_image
 
-def covert_to_binary2(image, threshold=128):
-    binary_image = np.where(image < threshold, 1, 0)
-    return binary_image
+# def convert_to_binary2(image, threshold=128):
+#     binary_image = np.where(image < threshold, 1, 0)
+#     return binary_image
+
 
 def resize_image(image, target_width= 16, target_height = 16):
     width, height = image.size
@@ -40,9 +41,33 @@ def resize_image(image, target_width= 16, target_height = 16):
 
     return background
 
-def process(image_path, target_width=16, target_height=16, threshold=128):
 
-    
+
+# grayscale activation: brightness -> amplitude
+
+def to_activation(image_array, invert=True):
+    # 0..255 grey -> 0.0..1.0 amplitude
+    activation = image_array.astype(np.float64) / 255.0
+
+    #   black(0)  -> 1.0 
+    #   white(255)-> 0.0  
+    if invert:
+        activation = 1.0 - activation
+
+    return activation
+
+
+def quantize(activation, levels=16):
+    # the paper uses G = 16 gray-tones; snap the amplitudes to that many steps.
+    # pass levels=None to keep the full continuous grayscale.
+
+    # 16 ta interval e vag kora amplitude 
+    if not levels:
+        return activation
+    return np.round(activation * (levels - 1)) / (levels - 1)
+
+
+def process_gray(image_path, target_width=16, target_height=16, gray_levels=16):
 
     grayscale_image = preprocess_image(image_path)
 
@@ -51,22 +76,28 @@ def process(image_path, target_width=16, target_height=16, threshold=128):
 
     image_array = np.array(processed_image)
 
-    # print("After resize:")
-    # print(image_array.shape)
+    # brightness -> amplitude, then quantise to G gray-tones
+    activation = to_activation(image_array, invert=True)
+    activation = quantize(activation, gray_levels)
 
-    binary_image = covert_to_binary2(image_array,threshold=threshold)
+    # print("After resize:", image_array.shape)
+    # print("Unique gray levels:", np.unique(activation))
 
-    # print("Binary shape:")
-    # print(binary_image.shape)
+    return activation
 
-    # print("Unique values:")
-    # print(np.unique(binary_image))
 
-    # print(binary_image)
-    # np.savetxt("binary_image.txt", binary_image, fmt="%d")
-
-    return binary_image
+# ----------------------------------------------------------------------------
+# OLD binary entry point - replaced by process_gray above.
+# ----------------------------------------------------------------------------
+# def process(image_path, target_width=16, target_height=16, threshold=128):
+#     grayscale_image = preprocess_image(image_path)
+#     processed_image = resize_image(grayscale_image, target_width, target_height)
+#     image_array = np.array(processed_image)
+#     binary_image = covert_to_binary2(image_array, threshold=threshold)
+#     return binary_image
 
 
 if __name__ == "__main__":
-    process("images/cat2.jpg")
+    activation = process_gray("images/pepsi.jpg", 64, 64)
+    print("shape:", activation.shape)
+    print("gray levels present:", np.unique(activation).size)
