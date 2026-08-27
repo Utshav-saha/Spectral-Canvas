@@ -1,18 +1,42 @@
 import numpy as np
 from scipy.io.wavfile import write
-from encoder.image_preprocessor import process_gray   # was: process (binary)
+from image_preprocessor import process_gray 
+from security import encrypt  # was: process (binary)
 import json
 
-def encode(image_path, target_width=16, target_height=16, output_file='output.wav',
-            sampling_rate=44100, f_min=1000, f_max=8000,
-             frame_duration=0.1, gray_levels=16, bin_snap=True):
+def encode(image_path, target_width=16, target_height=16,
+           output_file='output.wav',
+           sampling_rate=44100, f_min=1000, f_max=8000,
+           frame_duration=0.1, gray_levels=16,
+           bin_snap=True,
+           security_enabled=False,
+           caller=None,
+           receiver=None,
+           pin=None):
             # was: ..., threshold=128):
 
     # brightness -> amplitude map (float 0.0..1.0), instead of a 0/1 binary image
     activation = process_gray(image_path, target_width=target_width,
                               target_height=target_height, gray_levels=gray_levels)
-    rows = activation.shape[0]
-    cols = activation.shape[1]
+
+    if security_enabled:
+        if caller is None or receiver is None or pin is None:
+            raise ValueError(
+                "Caller, receiver and PIN are required when security is enabled."
+            )
+
+        activation_to_encode = encrypt(
+            caller,
+            receiver,
+            pin,
+            activation
+        )
+
+    else:
+        activation_to_encode = activation
+
+    rows = activation_to_encode.shape[0]
+    cols = activation_to_encode.shape[1]
 
     # f_max should be less than sampling_rate / 2 - Nyquist frequency
     if f_max >= sampling_rate / 2:
@@ -20,7 +44,7 @@ def encode(image_path, target_width=16, target_height=16, output_file='output.wa
 
     row_frequencies = np.linspace(f_max,f_min,rows)
 
-    frame_duration = 0.1
+    # frame_duration = 0.1
     frame_samples = int(sampling_rate*frame_duration)
 
     # linspace er karone 7888.88 emon freq o hote pare , but fft er karone 7888.88 er kono bin nai,
@@ -43,7 +67,7 @@ def encode(image_path, target_width=16, target_height=16, output_file='output.wa
     for idx in range(cols):
 
         # amplitude of every row for this column (0.0 = white, 1.0 = black)
-        amp = activation[:, idx]
+        amp = activation_to_encode[:, idx]
         frame = np.zeros_like(t, dtype=np.float64)
 
         for row in range(rows):
@@ -67,12 +91,12 @@ def encode(image_path, target_width=16, target_height=16, output_file='output.wa
 
     create_metadata_json(sampling_rate, rows, cols,
                          row_frequencies, f_min, f_max, frame_duration,
-                         frame_samples, gray_levels, bin_snap)
+                         frame_samples, gray_levels, bin_snap, security_enabled)
 
 
 def create_metadata_json(sampling_rate, rows, cols, row_frequencies,
                          f_min, f_max, frame_duration,
-                         frame_samples, gray_levels, bin_snap):
+                         frame_samples, gray_levels, bin_snap, security_enabled):
     metadata = {
         "sample_rate": sampling_rate,
         "rows": rows,
@@ -89,6 +113,7 @@ def create_metadata_json(sampling_rate, rows, cols, row_frequencies,
         "gray_levels": gray_levels,            # was: "active_pixel_value": 1 + "threshold"
         "bin_snap": bin_snap,
         "window": "hann",
+        "security_enabled": security_enabled,
         "frequency_mapping": "top_high to bottom_low"
         }
 
@@ -97,4 +122,8 @@ def create_metadata_json(sampling_rate, rows, cols, row_frequencies,
 
 
 if __name__ == "__main__":
-    encode("images/pepsi.jpg", target_width=64, target_height=64, output_file='output_pepsi.wav')
+
+    caller = "12345678901"
+    receiver = "10987654321"
+    pin = "1234"
+    encode("images/pepsi.jpg", target_width=64, target_height=64,security_enabled=True, caller=caller, receiver=receiver, pin=pin, output_file='output_pepsi.wav')

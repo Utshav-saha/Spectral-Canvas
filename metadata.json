@@ -76,5 +76,6 @@
     "gray_levels": 16,
     "bin_snap": true,
     "window": "hann",
+    "security_enabled": false,
     "frequency_mapping": "top_high to bottom_low"
 }
