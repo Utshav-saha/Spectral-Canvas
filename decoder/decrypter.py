@@ -12,7 +12,7 @@ spec.loader.exec_module(security)
 # ======================== ABOVE IS IMPORTING SECURITY MODULE ================
 import numpy as np
 import hashlib
-from security import derive_key
+from security import derive_key, generate_mask
 
 
 def unscramble(data: bytes, scrambled_activation):
@@ -45,6 +45,15 @@ def unscramble(data: bytes, scrambled_activation):
 
     return result
 
+def remove_mask(audio, caller: str, receiver: str, pin: str, alpha: float = 0.1):
+
+    # y[n] = x[n] + alpha * m[n]  ->  x[n] = y[n] - alpha * m[n]
+    # generate_mask is seeded from the same caller|receiver|pin key, so calling
+    # it with the same length regenerates the identical noise the encoder added
+    # - this is an exact cancellation, not a denoising approximation
+    mask = generate_mask(len(audio), caller, receiver, pin)
+
+    return audio - (alpha * mask)
 
 def decrypt(caller: str, receiver: str, pin: str, scrambled_activation):
 

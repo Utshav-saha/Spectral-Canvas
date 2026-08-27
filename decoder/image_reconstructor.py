@@ -10,6 +10,7 @@ import numpy as np
 from PIL import Image
 from synchronizer import load_audio, synchronize
 from stft_decoder import load_metadata, decode
+from decrypter import decrypt, remove_mask
 
 
 def normalize(magnitude_matrix):
@@ -88,27 +89,30 @@ def gray_error(recovered_gray, source_gray):
 
 
 def reconstruct(wav_path, metadata_path="metadata.json",
-                output_file="recovered.png"):
-                # was: ..., threshold=0.2, ...):
+                output_file="recovered.png",
+                caller=None, receiver=None, pin=None, decrypt_enabled=False):
 
-    # every constant comes from the metadata, nothing from the encoder
     metadata = load_metadata(metadata_path)
-
     sample_rate, audio = load_audio(wav_path)
-
-    # find where column 0 begins and trim to exactly the picture
     aligned = synchronize(audio, metadata["frame_samples"], metadata["columns"])
 
-    # one FFT per column, sampled at the known row frequencies
-    magnitude_matrix = decode(aligned, metadata)
+    # audio-domain: strip the noise mask BEFORE the FFT sees it
+    if decrypt_enabled:
+        if metadata.get("security_enabled", True):
+            if caller is None or receiver is None or pin is None:
+                raise ValueError("Caller, receiver and PIN are required to decode a secured file.")
+            aligned = remove_mask(aligned, caller, receiver, pin)
 
+    magnitude_matrix = decode(aligned, metadata)
     normalized = normalize(magnitude_matrix)
 
-    # magnitude -> grey (was: threshold -> binary)
+    # pixel-domain: undo the row/column scramble
+    if decrypt_enabled:
+        if metadata.get("security_enabled", True):
+            normalized = decrypt(caller, receiver, pin, normalized)
+
     gray_image = to_gray_image(normalized, metadata.get("gray_levels", 16))
-
     save_image(gray_image, output_file)
-
     return gray_image
 
 
@@ -118,23 +122,20 @@ if __name__ == "__main__":
     from image_preprocessor import process_gray
 
     IMG, N = "images/pepsi.jpg", 64
+    caller, receiver, pin = "12345678901", "10987654321", "1234"
 
-    # encode -> decode round trip
-    encode(IMG, target_width=N, target_height=N, security_enabled=True, caller="12345678901", receiver="10987654321", pin="1234", output_file="output_pepsi.wav")
+    encode(IMG, target_width=N, target_height=N, security_enabled=True,
+           caller=caller, receiver=receiver, pin=pin, output_file="output_pepsi.wav")
 
-    metadata = load_metadata("metadata.json")
-    sample_rate, audio = load_audio("output_pepsi.wav")
-    aligned = synchronize(audio, metadata["frame_samples"], metadata["columns"])
-    normalized = normalize(decode(aligned, metadata))
-
-    recovered = to_gray_image(normalized, metadata["gray_levels"])
+    recovered = reconstruct("output_pepsi.wav", "metadata.json",
+                             output_file="recovered.png",
+                             caller=caller, receiver=receiver, pin=pin, decrypt_enabled=True)
 
     # ground truth grey image, straight from the preprocessor
+    metadata = load_metadata("metadata.json")
     source_activation = process_gray(IMG, N, N, metadata["gray_levels"])
     source_gray = ((1.0 - source_activation) * 255.0).astype(np.uint8)
 
     print("grey MAE (expect 0.0):", round(gray_error(recovered, source_gray), 4))
     print("levels recovered:", np.unique(recovered).size, "of", metadata["gray_levels"])
-
-    reconstruct("output_pepsi.wav", "metadata.json", output_file="recovered.png")
     print("saved recovered.png")
