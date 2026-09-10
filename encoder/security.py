@@ -58,7 +58,7 @@ def encrypt(caller: str, receiver: str, pin: str, activation):
 
     return scrambled_activation
 
-def generate_mask(length: str, caller: str, receiver: str, pin: str):
+def generate_mask(length: int, caller: str, receiver: str, pin: str):
 
     encoded_key = derive_key(caller, receiver, pin)
     encoded_data = hashlib.sha256(encoded_key + b"mask").digest()

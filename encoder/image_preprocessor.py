@@ -34,7 +34,12 @@ def resize_image(image, target_width= 16, target_height = 16, mode="L"):
 
     # Lancz05 resampling algorithm , grayscale desampling er jonno good
 
-    background = Image.new(mode, (target_width, target_height), 255)
+    if mode == "RGB":
+        bg_color = (255, 255, 255)
+    else:
+        bg_color = 255
+
+    background = Image.new(mode, (target_width, target_height), bg_color)
     x_padding = (target_width - new_width) // 2
     y_padding = (target_height - new_height) // 2
     background.paste(resized_image, (x_padding, y_padding))
