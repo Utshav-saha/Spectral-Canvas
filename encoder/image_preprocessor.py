@@ -1,8 +1,8 @@
 from PIL import Image
 import numpy as np
 
-def preprocess_image(image_path):
-    image = Image.open(image_path).convert("L")
+def preprocess_image(image_path, mode="L"):
+    image = Image.open(image_path).convert(mode)
     img_format = image.mode
     height = image.height
     width = image.width
@@ -22,7 +22,7 @@ def preprocess_image(image_path):
 #     return binary_image
 
 
-def resize_image(image, target_width= 16, target_height = 16):
+def resize_image(image, target_width= 16, target_height = 16, mode="L"):
     width, height = image.size
 
     scale = min(target_width / width, target_height / height)
@@ -34,7 +34,7 @@ def resize_image(image, target_width= 16, target_height = 16):
 
     # Lancz05 resampling algorithm , grayscale desampling er jonno good
 
-    background = Image.new("L", (target_width, target_height), 255)
+    background = Image.new(mode, (target_width, target_height), 255)
     x_padding = (target_width - new_width) // 2
     y_padding = (target_height - new_height) // 2
     background.paste(resized_image, (x_padding, y_padding))
@@ -67,12 +67,12 @@ def quantize(activation, levels=16):
     return np.round(activation * (levels - 1)) / (levels - 1)
 
 
-def process_gray(image_path, target_width=16, target_height=16, gray_levels=16):
 
-    grayscale_image = preprocess_image(image_path)
+def process_image(image_path, target_width=16, target_height=16, gray_levels=16, mode="L"):
 
-    processed_image = resize_image(
-        grayscale_image, target_width, target_height)
+    pre_image = preprocess_image(image_path, mode=mode)
+
+    processed_image = resize_image(pre_image, target_width, target_height, mode)
 
     image_array = np.array(processed_image)
 
@@ -96,8 +96,7 @@ def process_gray(image_path, target_width=16, target_height=16, gray_levels=16):
 #     binary_image = covert_to_binary2(image_array, threshold=threshold)
 #     return binary_image
 
-
 if __name__ == "__main__":
-    activation = process_gray("images/pepsi.jpg", 64, 64)
+    activation = process_image("images/pepsi.jpg", 64, 64)
     print("shape:", activation.shape)
     print("gray levels present:", np.unique(activation).size)
