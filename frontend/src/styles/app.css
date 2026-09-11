@@ -1,0 +1,9 @@
+.site-foot {
+  border-top: 1px solid var(--line);
+  padding: 26px 0;
+  position: relative; z-index: 1;
+}
+.site-foot .shell {
+  display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+  font-size: var(--t-xs); color: var(--slate);
+}

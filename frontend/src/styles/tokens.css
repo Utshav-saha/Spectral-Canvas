@@ -1,0 +1,54 @@
+/* ==========================================================================
+   Spectral Canvas design tokens
+
+   Palette rationale: the subject is a bench instrument that paints pictures
+   with sound. The page is cool and papery so the signal traces (aqua) and the
+   locked state (coral) are the only saturated things on screen. Deliberately
+   cool-toned: a warm cream page with a terracotta accent is the house style of
+   every other project of this shape, so it is avoided on purpose.
+   ========================================================================== */
+:root {
+  --paper:       #EDF1F8;
+  --paper-deep:  #E1E8F5;
+  --surface:     #FBFCFE;
+  --ink:         #14182F;
+  --slate:       #656D94;
+  --line:        #CDD6E8;
+
+  --indigo:      #4B3FCF;
+  --indigo-soft: #EAE7FB;
+  --aqua:        #0E9C9C;
+  --aqua-soft:   #DFF2F1;
+  --coral:       #F06B47;
+  --coral-soft:  #FDEAE3;
+
+  --lcd:         #D2DCEE;
+  --lcd-ink:     #2B3559;
+  --chassis:     #F3F5FA;
+  --chassis-2:   #DDE4F1;
+
+  --display: 'Bricolage Grotesque', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --squiggle: 'Caveat', cursive;
+
+  --t-hero: clamp(2.5rem, 5.3vw, 4.35rem);
+  --t-h2:   clamp(1.6rem, 3vw, 2.4rem);
+  --t-h3:   1.18rem;
+  --t-body: 1rem;
+  --t-sm:   0.875rem;
+  --t-xs:   0.76rem;
+
+  --r-sm: 6px;  --r-md: 12px;  --r-lg: 20px;  --r-xl: 28px;
+
+  --shadow-panel: 0 1px 2px rgba(20,24,47,.05), 0 12px 32px -16px rgba(20,24,47,.22);
+  --shadow-bench: 0 2px 4px rgba(20,24,47,.06), 0 30px 60px -30px rgba(20,24,47,.40);
+  --ease: cubic-bezier(.22,.61,.36,1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

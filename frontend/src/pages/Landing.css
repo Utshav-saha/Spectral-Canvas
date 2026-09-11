@@ -1,0 +1,78 @@
+.landing { padding-bottom: 110px; }
+
+/* asymmetric split - the instrument is not a centred hero image, it sits on
+   the right like something on a desk you can reach over and touch */
+.hero {
+  display: grid;
+  grid-template-columns: 1.06fr .94fr;
+  gap: 70px; align-items: center;
+  padding-top: 64px; padding-bottom: 76px;
+}
+
+.hero-kicker { font-size: var(--t-sm); color: var(--slate); margin-bottom: 22px; }
+
+.hero-title {
+  font-size: var(--t-hero);
+  font-weight: 800;
+  line-height: .96;
+  letter-spacing: -.038em;
+  margin-bottom: 24px;
+}
+.hero-line { display: block; color: var(--indigo); }
+
+.hero-lede {
+  font-size: 1.06rem; color: var(--slate);
+  max-width: 46ch; line-height: 1.65; margin-bottom: 32px;
+}
+
+.hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 46px; }
+.hero-actions .btn { text-decoration: none; display: inline-block; }
+
+.hero-facts {
+  display: flex; flex-wrap: wrap; gap: 34px;
+  padding-top: 26px; border-top: 1px solid var(--line);
+  margin: 0;
+}
+.hero-facts div { display: flex; flex-direction: column; gap: 2px; }
+.hero-facts dt { font-size: 1.42rem; font-weight: 700; color: var(--ink); }
+.hero-facts dd { margin: 0; font-size: var(--t-xs); color: var(--slate); max-width: 17ch; line-height: 1.45; }
+
+.hero-bench { display: flex; justify-content: center; }
+
+/* ---------- how it works ---------- */
+.how { padding-top: 34px; margin-top: 26px; }
+.how-title { font-size: var(--t-h2); font-weight: 700; letter-spacing: -.022em; margin-bottom: 34px; }
+
+.how-list {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+  border-top: 1px solid var(--line);
+}
+.how-item { padding: 26px 26px 26px 0; border-right: 1px solid var(--line); }
+.how-item:last-child { border-right: none; padding-right: 0; }
+
+/* numbering is honest here: this genuinely is a four-stage pipeline in order */
+.how-step {
+  display: block; font-size: var(--t-xs); color: var(--indigo);
+  font-weight: 700; margin-bottom: 12px;
+}
+.how-k { font-size: var(--t-h3); font-weight: 700; margin-bottom: 8px; letter-spacing: -.012em; }
+.how-d { font-size: var(--t-sm); color: var(--slate); line-height: 1.62; max-width: 30ch; }
+
+.how-foot {
+  margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--line);
+  font-size: var(--t-sm); color: var(--slate); max-width: 62ch;
+}
+
+@media (max-width: 1020px) {
+  .hero { grid-template-columns: 1fr; gap: 54px; padding-top: 52px; }
+  .hero-bench { order: -1; }
+  .how-list { grid-template-columns: repeat(2, 1fr); }
+  .how-item:nth-child(2) { border-right: none; }
+  .how-item { padding-right: 22px; }
+}
+@media (max-width: 600px) {
+  .how-list { grid-template-columns: 1fr; }
+  .how-item { border-right: none; border-bottom: 1px solid var(--line); padding-right: 0; }
+  .how-item:last-child { border-bottom: none; }
+}

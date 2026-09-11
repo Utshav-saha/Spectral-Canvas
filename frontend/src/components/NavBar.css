@@ -1,0 +1,61 @@
+.nav {
+  position: sticky; top: 0; z-index: 40;
+  backdrop-filter: blur(12px);
+  background: rgba(237,241,248,.82);
+  border-bottom: 1px solid transparent;
+}
+.nav-inner { display: flex; align-items: center; justify-content: space-between; height: 68px; gap: 20px; }
+
+.nav-brand {
+  display: inline-flex; align-items: center; gap: 10px;
+  text-decoration: none; font-weight: 700; font-size: 1.02rem; letter-spacing: -.01em;
+}
+.nav-bars { display: inline-flex; align-items: center; gap: 2px; height: 22px; }
+.nav-bars i { width: 2.5px; border-radius: 2px; background: var(--indigo); display: block; }
+.nav-bars i:nth-child(2), .nav-bars i:nth-child(4) { background: var(--aqua); }
+
+.nav-links { display: flex; align-items: center; gap: 30px; }
+
+.nav-link {
+  position: relative;
+  background: none; border: none; padding: 6px 0;
+  text-decoration: none; cursor: pointer;
+  font-size: var(--t-sm); font-weight: 500; color: var(--ink);
+}
+.nav-link::after {
+  content: ''; position: absolute; left: 50%; bottom: 0;
+  height: 1.5px; width: 0; background: var(--indigo);
+  transform: translateX(-50%);
+  transition: width .26s var(--ease);
+}
+.nav-link:hover::after, .nav-link:focus-visible::after, .nav-link.active::after { width: 100%; }
+
+.nav-drop { position: relative; }
+.nav-menu {
+  position: absolute; top: calc(100% + 10px); left: 50%;
+  transform: translateX(-50%) translateY(-6px);
+  width: 244px; padding: 7px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-panel);
+  display: flex; flex-direction: column; gap: 2px;
+  opacity: 0; visibility: hidden;
+  transition: opacity .2s var(--ease), transform .2s var(--ease), visibility .2s;
+}
+.nav-menu.is-open { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+
+.nav-menu button {
+  text-align: left; background: none; border: none; cursor: pointer;
+  padding: 9px 11px; border-radius: var(--r-sm);
+  display: flex; flex-direction: column; gap: 1px;
+  transition: background .14s var(--ease);
+}
+.nav-menu button:hover { background: var(--indigo-soft); }
+.nav-menu b { font-size: var(--t-sm); font-weight: 600; }
+.nav-menu span { font-size: var(--t-xs); color: var(--slate); }
+
+@media (max-width: 720px) {
+  .nav-links { gap: 18px; }
+  .nav-links .nav-link[href="#how"] { display: none; }
+}
