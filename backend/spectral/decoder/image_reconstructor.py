@@ -2,6 +2,8 @@ import os
 import sys
 import numpy as np
 from PIL import Image
+import io
+
 
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -138,16 +140,16 @@ def check_credentials(security_enabled,decrypt_enabled,caller,receiver,pin):
             )
 
 
-def reconstruct(wav_path,metadata_path="metadata.json",output_file="recovered.png",caller=None,receiver=None,pin=None,decrypt_enabled=False):
-    metadata = load_metadata(metadata_path)
+def reconstruct(audio, metadata, caller=None, receiver=None, pin=None, decrypt_enabled=False):
+    # metadata = load_metadata(metadata_path)
 
-    sample_rate, audio = load_audio(wav_path)
+    # sample_rate, audio = load_audio(wav_path)
 
-    if sample_rate != metadata["sample_rate"]:
-        raise ValueError(
-            f"WAV sample rate is {sample_rate}, "
-            f"metadata says {metadata['sample_rate']}."
-        )
+    # if sample_rate != metadata["sample_rate"]:
+    #     raise ValueError(
+    #         f"WAV sample rate is {sample_rate}, "
+    #         f"metadata says {metadata['sample_rate']}."
+    #     )
 
     channels = metadata.get("channels", 1)
     mode = metadata.get("mode","RGB" if channels == 3 else "L")
@@ -207,9 +209,35 @@ def reconstruct(wav_path,metadata_path="metadata.json",output_file="recovered.pn
             f"mode={mode}, channels={channels}"
         )
 
-    save_image(image,output_file)
+    # save_image(image,output_file)
 
     return image
+
+
+def to_png_bytes(image_array, scale=8):
+    image = Image.fromarray(image_array,
+                            mode="RGB" if image_array.ndim == 3 else "L")
+    if scale > 1:
+        image = image.resize((image.width * scale, image.height * scale),
+                             Image.Resampling.NEAREST)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+def mean_absolute_error(recovered, source):
+    return float(np.mean(np.abs(recovered.astype(int) - source.astype(int))))
+
+
+def mse(recovered, source):
+    return float(np.mean((recovered.astype(float) - source.astype(float)) ** 2))
+
+
+def psnr(recovered, source):
+    error = mse(recovered, source)
+    if error == 0:
+        return float("inf")
+    return float(10 * np.log10((255.0 ** 2) / error))
+
 
 
 if __name__ == "__main__":

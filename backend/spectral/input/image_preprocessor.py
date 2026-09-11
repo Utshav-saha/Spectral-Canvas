@@ -1,16 +1,22 @@
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 import numpy as np
+import io
+import base64
 
 def preprocess_image(image_path, mode="L"):
-    image = Image.open(image_path).convert(mode)
+    # Check if image_path is already a PIL Image object
+    if isinstance(image_path, Image.Image):
+        image = image_path.convert(mode)
+    else:
+        # If it's a string path or bytes, open it normally
+        image = Image.open(image_path).convert(mode)
+        
     img_format = image.mode
     height = image.height
     width = image.width
-
     # print(img_format)
     # print(height)
     # print(width)
-
     return image
 
 # def convert_to_binary1(image, threshold=128):
@@ -91,15 +97,100 @@ def process_image(image_path, target_width=16, target_height=16, gray_levels=16,
     return activation
 
 
-# ----------------------------------------------------------------------------
-# OLD binary entry point - replaced by process_gray above.
-# ----------------------------------------------------------------------------
+
 # def process(image_path, target_width=16, target_height=16, threshold=128):
 #     grayscale_image = preprocess_image(image_path)
 #     processed_image = resize_image(grayscale_image, target_width, target_height)
 #     image_array = np.array(processed_image)
 #     binary_image = covert_to_binary2(image_array, threshold=threshold)
 #     return binary_image
+
+
+
+
+def activation_to_png_bytes(activation, gray_levels=16, scale=8):
+    """Processed source -> a PNG preview the frontend can show next to the result."""
+    if gray_levels:
+        activation = np.round(activation * (gray_levels - 1)) / (gray_levels - 1)
+    array = ((1.0 - activation) * 255.0).astype(np.uint8)
+    image = Image.fromarray(array, mode="RGB" if array.ndim == 3 else "L")
+    if scale > 1:
+        image = image.resize((image.width * scale, image.height * scale),
+                             Image.Resampling.NEAREST)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+# --------------------------------------------------------------------------
+# Text -> image
+# --------------------------------------------------------------------------
+
+def _load_font(size):
+    for path in ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+                 "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                 "/System/Library/Fonts/Menlo.ttc",
+                 "C:\\Windows\\Fonts\\consolab.ttf"):
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
+def render_text_image(text, target_width=64, target_height=64, font_size=None):
+    """Lay short text out as a high-contrast black-on-white image.
+
+    Wraps greedily to fit the aspect ratio rather than letting one long line
+    shrink to nothing.
+    """
+    text = (text or "").strip()
+    if not text:
+        text = " "
+
+    canvas_w, canvas_h = target_width * 12, target_height * 12
+    lines = text.splitlines() or [text]
+
+    # greedy wrap so long single lines don't become unreadable slivers
+    max_chars = max(8, int(len(max(lines, key=len)) ** 0.5 * 3))
+    wrapped = []
+    for line in lines:
+        while len(line) > max_chars:
+            cut = line.rfind(" ", 0, max_chars)
+            cut = cut if cut > 0 else max_chars
+            wrapped.append(line[:cut])
+            line = line[cut:].lstrip()
+        wrapped.append(line)
+    wrapped = [w for w in wrapped if w != ""] or [" "]
+
+    size = font_size or max(10, int(canvas_h / (len(wrapped) * 1.6)))
+    font = _load_font(size)
+
+    image = Image.new("L", (canvas_w, canvas_h), 255)
+    draw = ImageDraw.Draw(image)
+
+    line_h = size * 1.25
+    total_h = line_h * len(wrapped)
+    y = (canvas_h - total_h) / 2
+
+    for line in wrapped:
+        try:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            w = bbox[2] - bbox[0]
+        except Exception:
+            w = len(line) * size * 0.6
+        draw.text(((canvas_w - w) / 2, y), line, fill=0, font=font)
+        y += line_h
+
+    return ImageOps.invert(ImageOps.invert(image))
+
+
+def decode_data_url(data_url: str) -> bytes:
+    """'data:image/png;base64,iVBOR...' -> raw PNG bytes (for the doodle canvas)."""
+    if "," in data_url:
+        data_url = data_url.split(",", 1)[1]
+    return base64.b64decode(data_url)
+
 
 if __name__ == "__main__":
     activation = process_image("images/pepsi.jpg", 64, 64)

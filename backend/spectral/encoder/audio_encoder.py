@@ -1,7 +1,12 @@
 import numpy as np
 from scipy.io.wavfile import write
-from image_preprocessor import process_image 
-from security import encrypt, generate_mask
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from input.image_preprocessor import process_image
+from common.security import encrypt, generate_mask
 import json
 
 def encode_activation_matrix(frame_samples, row_frequencies, activation_to_encode, t):
@@ -36,7 +41,7 @@ def encode_activation_matrix(frame_samples, row_frequencies, activation_to_encod
 
 def encode(image_path, target_width=16, target_height=16,
            output_file='output.wav',
-           sampling_rate=44100, f_min=1000, f_max=8000,
+           sample_rate=44100, f_min=1000, f_max=8000,
            frame_duration=0.1, gray_levels=16,
            bin_snap=True,
            security_enabled=False,
@@ -55,23 +60,23 @@ def encode(image_path, target_width=16, target_height=16,
     cols = activation.shape[1]
 
     # f_max should be less than sampling_rate / 2 - Nyquist frequency
-    if f_max >= sampling_rate / 2:
+    if f_max >= sample_rate / 2:
         raise ValueError("f_max should be less than sampling_rate/2")
 
     row_frequencies = np.linspace(f_max,f_min,rows)
 
     # frame_duration = 0.1
-    frame_samples = int(sampling_rate*frame_duration)
+    frame_samples = int(sample_rate*frame_duration)
 
     # linspace er karone 7888.88 emon freq o hote pare , but fft er karone 7888.88 er kono bin nai,
     # 7880 , 7890 emon ache so snap to nearest bin nahole spectral leakage hobe & neighbouring pixel k affect korbe - light grey theke dark grey hoye jete pare
     # tai 7888.88 k 7890 kora holo 
     if bin_snap:
-        bin_width = sampling_rate / frame_samples
+        bin_width = sample_rate / frame_samples
         row_frequencies = np.round(row_frequencies / bin_width) * bin_width
 
     n = np.arange(frame_samples)
-    t = n / sampling_rate
+    t = n / sample_rate
 
 
     if mode == "L":
@@ -140,16 +145,17 @@ def encode(image_path, target_width=16, target_height=16,
             # y[n] = x[n] + alpha * m[n]
             final_audio = final_audio + (alpha * mask)
 
-    write(output_file, sampling_rate, final_audio)
+    # write(output_file, sample_rate, final_audio)
 
-    create_metadata_json(sampling_rate, rows, cols,
+    metadata = create_metadata_json(sample_rate, rows, cols,
                          row_frequencies, f_min, f_max, frame_duration,
-                         frame_samples, gray_levels, bin_snap, security_enabled, alpha,mode, normalization_gain)
+                         frame_samples, gray_levels, bin_snap, security_enabled, alpha,mode, normalization_gain, final_audio=final_audio)
+    return final_audio, metadata, activation
 
 
 def create_metadata_json(sampling_rate, rows, cols, row_frequencies,
                          f_min, f_max, frame_duration,
-                         frame_samples, gray_levels, bin_snap, security_enabled, alpha, mode, normalization_gain):
+                         frame_samples, gray_levels, bin_snap, security_enabled, alpha, mode, normalization_gain, final_audio):
     metadata = {
         "sample_rate": sampling_rate,
         "rows": rows,
@@ -172,12 +178,15 @@ def create_metadata_json(sampling_rate, rows, cols, row_frequencies,
         "frequency_mapping": "top_high to bottom_low",
 
         "channels": 3 if mode == "RGB" else 1,
-        "frames_per_channel": cols
+        "frames_per_channel": cols,
+        "duration_seconds": len(final_audio) / sampling_rate,
 
         }
 
-    with open("metadata.json", "w") as file:
-        json.dump(metadata,file,indent=4)
+    return metadata
+
+    # with open("metadata.json", "w") as file:
+    #     json.dump(metadata,file,indent=4)
 
 
 if __name__ == "__main__":

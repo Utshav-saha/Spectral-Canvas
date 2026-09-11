@@ -1,18 +1,19 @@
 import importlib.util
 import sys
+import sys
+import os
 
-module_path = './encoder/security.py'
-module_name = 'security'
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-spec = importlib.util.spec_from_file_location(module_name, module_path)
-security = importlib.util.module_from_spec(spec)
-sys.modules[module_name] = security
-spec.loader.exec_module(security)   
+# spec = importlib.util.spec_from_file_location(module_name, module_path)
+# security = importlib.util.module_from_spec(spec)
+# sys.modules[module_name] = security
+# spec.loader.exec_module(security)   
 
 # ======================== ABOVE IS IMPORTING SECURITY MODULE ================
 import numpy as np
 import hashlib
-from security import derive_key, generate_mask
+from common.security import derive_key, generate_mask
 
 
 def unscramble(data: bytes, scrambled_activation):
