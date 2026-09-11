@@ -25,6 +25,10 @@ def frame_energy(audio, frame_samples):
     # how many whole frames fit in this audio
     frames = len(audio) // frame_samples
 
+    if frames == 0:
+        return np.array([], dtype=np.float64)
+
+
     # cut the audio into non-overlapping blocks of frame_samples
     blocks = audio[:frames * frame_samples].reshape(frames, frame_samples)
 
@@ -63,10 +67,10 @@ def find_start_by_correlation(audio, reference):
     return start
 
 
-def synchronize(audio, frame_samples, columns, energy_ratio=0.1):
+def synchronize(audio, frame_samples, columns, channels =1,  energy_ratio=0.1):
 
     # how many samples the picture actually occupies
-    needed = columns * frame_samples
+    needed = columns * frame_samples * channels
 
     # a WAV we encoded ourselves is exactly this long, so sample 0 is column 0
     # and no synchronisation is needed at all
@@ -86,13 +90,15 @@ def synchronize(audio, frame_samples, columns, energy_ratio=0.1):
 
 
 if __name__ == "__main__":
+    sample_rate, audio = load_audio("output_pepsi.wav")
 
-    sample_rate, audio = load_audio("black1.wav")
+    # Example for 64x64 RGB, 0.1 s frames at 44.1 kHz:
+    frame_samples = 4410
+    columns = 64
+    channels = 3
+
+    aligned = synchronize(audio, frame_samples, columns, channels=channels)
 
     print("sample rate:", sample_rate)
-    print("samples:", len(audio), "(expect 282240 = 64 x 4410)")
-    print("peak:", np.max(np.abs(audio)), "(expect 0.8)")
-    print("detected start:", find_start_by_energy(audio, 4410), "(expect 0)")
-
-    aligned = synchronize(audio, 4410, 64)
-    print("aligned length:", len(aligned), "(expect 282240)")
+    print("aligned samples:", len(aligned))
+    print("expected:", channels * columns * frame_samples)

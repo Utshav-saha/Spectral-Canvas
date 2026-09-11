@@ -185,4 +185,4 @@ if __name__ == "__main__":
     caller = "12345678901"
     receiver = "10987654321"
     pin = "1234"
-    encode("images/pepsi.jpg", target_width=64, target_height=64,security_enabled=True, caller=caller, receiver=receiver, pin=pin, alpha = .5, output_file='output_pepsi.wav')
+    encode("images/pepsi.jpg", target_width=64, target_height=64,security_enabled=False, caller=caller, receiver=receiver, pin=pin, alpha = .5, output_file='output_pepsi.wav', mode="RGB")

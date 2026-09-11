@@ -70,13 +70,17 @@
     ],
     "f_min": 1000,
     "f_max": 8000,
-    "alpha": 0.6,
+    "alpha": 0.5,
     "frame_duration": 0.1,
     "frame_samples": 4410,
-    "encoding_mode": "grayscale",
+    "mode": "RGB",
+    "normalization_gain": 0.02143226946126148,
+    "encoding_mode": "rgb",
     "gray_levels": 16,
     "bin_snap": true,
     "window": "hann",
     "security_enabled": true,
-    "frequency_mapping": "top_high to bottom_low"
+    "frequency_mapping": "top_high to bottom_low",
+    "channels": 3,
+    "frames_per_channel": 64
 }

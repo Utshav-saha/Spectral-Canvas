@@ -1,141 +1,269 @@
-import sys, os
-# make sibling packages importable no matter where this script is run from
-_HERE = os.path.dirname(os.path.abspath(__file__))          # .../decoder
-_ROOT = os.path.dirname(_HERE)                               # project root
-for _p in (_ROOT, os.path.join(_ROOT, "encoder"), _HERE):
+import os
+import sys
+import numpy as np
+from PIL import Image
+
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(_HERE)
+
+for _p in (
+    _ROOT,
+    os.path.join(_ROOT, "encoder"),
+    _HERE
+):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import numpy as np
-from PIL import Image
+
 from synchronizer import load_audio, synchronize
 from stft_decoder import load_metadata, decode
 from decrypter import decrypt, remove_mask
 
 
 def normalize(magnitude_matrix):
-
+   
     lowest = magnitude_matrix.min()
     highest = magnitude_matrix.max()
 
-    # a completely silent file would make us divide by zero
     if highest == lowest:
         return np.zeros_like(magnitude_matrix)
 
-    # min-max stretch: quietest cell becomes 0.0, loudest becomes 1.0
-    normalized = (magnitude_matrix - lowest) / (highest - lowest)
+    return (magnitude_matrix - lowest) / (highest - lowest)
 
-    return normalized
+def recover_activation(magnitude_matrix, metadata):
+    """
+    Recover the transmitted 0..1 activation amplitudes from FFT magnitudes.
 
+    Encoder for one carrier:
+        frame[n] = A * sin(...) * hann[n]
 
-# ----------------------------------------------------------------------------
-# GRAYSCALE mapping: recovered magnitude -> grey level.
-# FFT magnitude is linear in tone amplitude, so after the min-max stretch the
-# normalised value IS the pixel's brightness - just invert it back to grey.
-# ----------------------------------------------------------------------------
-def to_gray_image(normalized, gray_levels=16):
+    Then the COMPLETE transmission was multiplied by:
+        normalization_gain = g
 
-    # snap to the same G tones the encoder used (pass gray_levels=None to skip)
-    if gray_levels:
-        normalized = np.round(normalized * (gray_levels - 1)) / (gray_levels - 1)
+    For a bin-centred sinusoid:
+        |X[k]| approximately A * g * sum(hann) / 2
 
-    # loud(1.0) -> dark(0), silent(0.0) -> white(255); matches the encoder's invert
-    gray = ((1.0 - normalized) * 255.0).astype(np.uint8)
+    Therefore:
+        A approximately 2*|X[k]| / (g*sum(hann))
+    """
+    gain = metadata.get("normalization_gain")
 
-    return gray
+    if gain is None or gain == 0:
+        return normalize(magnitude_matrix)
 
+    frame_samples = metadata["frame_samples"]
+    window = np.hanning(frame_samples)
+    window_sum = np.sum(window)
 
-# ----------------------------------------------------------------------------
-# BINARY thresholding - no longer used in the grayscale pipeline. Kept for
-# reference; to_gray_image replaces both of these.
-# ----------------------------------------------------------------------------
-# def apply_threshold(normalized, threshold=0.2):
-#     binary_image = np.where(normalized >= threshold, 1, 0)
-#     return binary_image
-#
-# def otsu_threshold(normalized):
-#     counts, edges = np.histogram(normalized, bins=256, range=(0.0, 1.0))
-#     centres = (edges[:-1] + edges[1:]) / 2
-#     weight_below = np.cumsum(counts)
-#     weight_above = weight_below[-1] - weight_below
-#     total_below = np.cumsum(counts * centres)
-#     mean_below = np.divide(total_below, weight_below,
-#                            out=np.zeros(256), where=weight_below > 0)
-#     mean_above = np.divide(total_below[-1] - total_below, weight_above,
-#                            out=np.zeros(256), where=weight_above > 0)
-#     between_variance = weight_below * weight_above * (mean_below - mean_above) ** 2
-#     return centres[np.argmax(between_variance)]
+    scale = gain * window_sum / 2.0
+
+    if scale == 0:
+        return np.zeros_like(magnitude_matrix)
+
+    activation = magnitude_matrix / scale
+
+    # Numerical leakage/error can produce tiny values outside the valid range.
+    return np.clip(activation, 0.0, 1.0)
 
 
-def save_image(gray_image, output_file="recovered.png"):
+def quantize_activation(activation, levels=16):
+    
+    if not levels:
+        return activation
 
-    # gray_image already holds 0..255 grey values from to_gray_image, so just save
-    Image.fromarray(gray_image, mode="L").save(output_file)
+    return (np.round(activation * (levels - 1))/ (levels - 1))
 
-    # was (binary): repaint 1->black, 0->white before saving
-    # viewable = np.where(binary_image == 1, 0, 255).astype(np.uint8)
-    # Image.fromarray(viewable, mode="L").save(output_file)
 
+def activation_to_pixels(activation, gray_levels=16):
+    """
+    Encoder used:
+        activation = 1 - pixel/255
+
+    Therefore:
+        pixel = 255*(1 - activation)
+
+    This works for an L channel and individually for R/G/B.
+    """
+    activation = quantize_activation(activation,gray_levels)
+
+    pixels = ((1.0 - activation) * 255.0)
+
+    return np.clip(np.rint(pixels),0,255).astype(np.uint8)
+
+
+def split_rgb_audio(audio, metadata):
+    
+    columns = metadata["columns"]
+    frame_samples = metadata["frame_samples"]
+
+    channel_samples = metadata.get("samples_per_channel",columns * frame_samples)
+
+    needed = 3 * channel_samples
+
+    if len(audio) < needed:
+        raise ValueError(f"RGB audio is too short: got {len(audio)} samples, "f"need {needed}.")
+
+    audio_R = audio[0:channel_samples]
+    audio_G = audio[channel_samples:2 * channel_samples]
+    audio_B = audio[2 * channel_samples:3 * channel_samples]
+
+    return audio_R, audio_G, audio_B
+
+
+def save_image(image_array, output_file="recovered.png"):
+    if image_array.ndim == 2:
+        mode = "L"
+    elif (image_array.ndim == 3 and image_array.shape[2] == 3):
+        mode = "RGB"
+    else:
+        raise ValueError(f"Unsupported reconstructed image shape: {image_array.shape}")
+
+    Image.fromarray(image_array,mode=mode).save(output_file)
+
+
+def image_mae(recovered, source):
+    
+    return np.mean(np.abs(recovered.astype(np.float64)- source.astype(np.float64)))
 
 def gray_error(recovered_gray, source_gray):
+    return image_mae(recovered_gray,source_gray)
 
-    # mean absolute error in grey levels (0..255); lower is better
-    return np.mean(np.abs(recovered_gray.astype(int) - source_gray.astype(int)))
+def check_credentials(security_enabled,decrypt_enabled,caller,receiver,pin):
+    if security_enabled and decrypt_enabled:
+        if (caller is None or receiver is None or pin is None):
+            raise ValueError(
+                "Caller, receiver and PIN are required "
+                "to decode a secured file."
+            )
 
 
-# def pixel_accuracy(recovered, source):
-#     # binary metric - fraction of pixels exactly right. Replaced by gray_error.
-#     return np.mean(recovered == source)
-
-
-def reconstruct(wav_path, metadata_path="metadata.json",
-                output_file="recovered.png",
-                caller=None, receiver=None, pin=None, decrypt_enabled=False):
-
+def reconstruct(wav_path,metadata_path="metadata.json",output_file="recovered.png",caller=None,receiver=None,pin=None,decrypt_enabled=False):
     metadata = load_metadata(metadata_path)
+
     sample_rate, audio = load_audio(wav_path)
-    aligned = synchronize(audio, metadata["frame_samples"], metadata["columns"])
 
-    # audio-domain: strip the noise mask BEFORE the FFT sees it
-    if decrypt_enabled:
-        if metadata.get("security_enabled", True):
-            if caller is None or receiver is None or pin is None:
-                raise ValueError("Caller, receiver and PIN are required to decode a secured file.")
-            aligned = remove_mask(aligned, caller, receiver, pin, alpha=metadata.get("alpha", 0.1))
+    if sample_rate != metadata["sample_rate"]:
+        raise ValueError(
+            f"WAV sample rate is {sample_rate}, "
+            f"metadata says {metadata['sample_rate']}."
+        )
 
-    magnitude_matrix = decode(aligned, metadata)
-    normalized = normalize(magnitude_matrix)
+    channels = metadata.get("channels", 1)
+    mode = metadata.get("mode","RGB" if channels == 3 else "L")
 
-    # pixel-domain: undo the row/column scramble
-    if decrypt_enabled:
-        if metadata.get("security_enabled", True):
-            normalized = decrypt(caller, receiver, pin, normalized)
+    security_enabled = metadata.get("security_enabled",False)
 
-    gray_image = to_gray_image(normalized, metadata.get("gray_levels", 16))
-    save_image(gray_image, output_file)
-    return gray_image
+    check_credentials(security_enabled,decrypt_enabled,caller,receiver,pin)
+
+    aligned = synchronize(audio,metadata["frame_samples"],metadata["columns"],channels=channels)
+
+    if security_enabled and decrypt_enabled:
+        aligned = remove_mask(aligned,caller,receiver,pin,alpha=metadata.get("alpha", 0.1))
+
+    gray_levels = metadata.get("gray_levels",16)
+
+
+    if mode == "L" or channels == 1:
+        magnitude = decode(aligned,metadata)
+
+        activation = recover_activation(magnitude,metadata)
+
+        if security_enabled and decrypt_enabled:
+            activation = decrypt(caller,receiver,pin,activation)
+
+        image = activation_to_pixels(activation,gray_levels)
+
+  
+    elif mode == "RGB" and channels == 3:
+        audio_R, audio_G, audio_B = split_rgb_audio(aligned,metadata)
+
+        # FFT decoding: one call per colour channel.
+        mag_R = decode(audio_R, metadata)
+        mag_G = decode(audio_G, metadata)
+        mag_B = decode(audio_B, metadata)
+
+        
+        act_R = recover_activation(mag_R, metadata)
+        act_G = recover_activation(mag_G, metadata)
+        act_B = recover_activation(mag_B, metadata)
+
+        # Undo the same spatial permutation independently on each channel.
+        if security_enabled and decrypt_enabled:
+            act_R = decrypt(caller, receiver, pin, act_R)
+            act_G = decrypt(caller, receiver, pin, act_G)
+            act_B = decrypt(caller, receiver, pin, act_B)
+
+        # Activation -> actual R/G/B pixel values.
+        red = activation_to_pixels(act_R,gray_levels)
+        green = activation_to_pixels(act_G,gray_levels)
+        blue = activation_to_pixels(act_B,gray_levels)
+
+        image = np.stack([red, green, blue],axis=-1)
+
+    else:
+        raise ValueError(
+            f"Unsupported decoder configuration: "
+            f"mode={mode}, channels={channels}"
+        )
+
+    save_image(image,output_file)
+
+    return image
 
 
 if __name__ == "__main__":
 
     from audio_encoder import encode
-    from image_preprocessor import process_gray
+    from image_preprocessor import process_image
 
-    IMG, N = "images/pepsi.jpg", 64
-    caller, receiver, pin = "12345678901", "10987654321", "1234"
+    IMG = "images/pepsi.jpg"
+    N = 64
+    MODE = "RGB"
+    SECURED = True
 
-    encode(IMG, target_width=N, target_height=N, security_enabled=True,
-           caller=caller, receiver=receiver, pin=pin, alpha = .6, output_file="output_pepsi.wav")
+    caller = "12345678901"
+    receiver = "10987654321"
+    pin = "1234"
 
-    recovered = reconstruct("output_pepsi.wav", "metadata.json",
-                             output_file="recovered.png",
-                             caller=caller, receiver=receiver, pin=pin, decrypt_enabled=True)
+    encode(IMG,target_width=N,target_height=N,mode=MODE,security_enabled=SECURED,caller=caller,receiver=receiver,pin=pin,alpha=0.5,output_file="output_pepsi.wav")
 
-    # ground truth grey image, straight from the preprocessor
+    recovered = reconstruct("output_pepsi.wav","metadata.json",output_file="recovered.png",caller=caller,receiver=receiver,pin=pin,decrypt_enabled=SECURED)
+
     metadata = load_metadata("metadata.json")
-    source_activation = process_gray(IMG, N, N, metadata["gray_levels"])
-    source_gray = ((1.0 - source_activation) * 255.0).astype(np.uint8)
 
-    print("grey MAE (expect 0.0):", round(gray_error(recovered, source_gray), 4))
-    print("levels recovered:", np.unique(recovered).size, "of", metadata["gray_levels"])
-    print("saved recovered.png")
+    source_activation = process_image(IMG,N,N,metadata.get("gray_levels", 16),mode=MODE)
+
+    source_image = ((1.0 - source_activation)* 255.0)
+
+    source_image = np.clip(np.rint(source_image),0,255).astype(np.uint8)
+
+    print(
+        "mode:",
+        metadata.get("mode")
+    )
+
+    print(
+        "channels:",
+        metadata.get("channels")
+    )
+
+    print(
+        "recovered shape:",
+        recovered.shape
+    )
+
+    print(
+        "image MAE:",
+        round(
+            image_mae(
+                recovered,
+                source_image
+            ),
+            4
+        )
+    )
+
+    print(
+        "saved recovered.png"
+    )

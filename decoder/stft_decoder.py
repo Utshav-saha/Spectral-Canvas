@@ -33,7 +33,12 @@ def split_into_frames(audio, frame_samples, columns):
 
     # the encoder wrote frames back to back with no overlap, so column c is
     # exactly samples [c*N, (c+1)*N) - one reshape lines them all up
-    frames = audio[:columns * frame_samples].reshape(columns, frame_samples)
+    needed = columns * frame_samples
+
+    if len(audio) < needed:
+        raise ValueError( f"Audio channel is too short: got {len(audio)} samples, "f"need at least {needed}.")
+
+    frames = audio[:needed].reshape(columns, frame_samples)
 
     return frames
 
