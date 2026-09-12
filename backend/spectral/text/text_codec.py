@@ -1,4 +1,6 @@
 import numpy as np 
+
+# We are implementing Multiple Frequency-Shift Keying
 # amra 16 ta frequency use korbo, so 4 ta bit represent kora jabe ekta freq diye
 # encoded byte = 8 bit , tai dui part e vag kore ogulo freq diye represent kora hobe
 
@@ -18,6 +20,16 @@ def text_to_data(message: str):
         data.append((upper, lower))
 
     return data
+
+
+def data_to_text(data):
+    bytes_list = []
+
+    for upper, lower in data:
+        byte = (upper << 4) | lower
+        bytes_list.append(byte)
+
+    return bytes(bytes_list).decode("utf-8")
 
 
 def bits_to_frequencies(data, fs=44100, Ts=0.05, f_min=2000, f_max=5000, bits=4):
@@ -66,11 +78,30 @@ def frequencies_to_bits(frequencies, fs=44100, Ts=0.05, f_min=2000, f_max=5000, 
     return data
 
 
-def data_to_text(data):
-    bytes_list = []
+def frequency_to_audio(frequency, fs=44100, Ts=0.05):
 
-    for upper, lower in data:
-        byte = (upper << 4) | lower
-        bytes_list.append(byte)
+    # Synthesis equation actually
+    N = int(fs * Ts)
+    n = np.arange(N)
+    t = n / fs
+    samples = np.sin(2 * np.pi * frequency * t)
 
-    return bytes(bytes_list).decode("utf-8")
+    return samples
+
+
+def tone_to_freq(tone, fs = 44100, Ts = 0.05):
+
+    # And this is analysis equation 
+    N = int(fs * Ts)
+    spectrum = np.abs(np.fft.rfft(tone))
+
+    bin_width = fs / N
+    num_bins = (N//2)+ 1
+
+    freq_axis = np.arange(num_bins) * bin_width
+
+    peak_bin = np.argmax(spectrum)
+    peak_frequency = freq_axis[peak_bin]
+
+    return peak_frequency
+
