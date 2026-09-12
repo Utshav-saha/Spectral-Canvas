@@ -27,11 +27,13 @@ def encode_activation_matrix(frame_samples, row_frequencies, activation_to_encod
         frame = np.zeros_like(t, dtype=np.float64)
 
         for row in range(rows):
+
+            # amp = 0 means white , white er jonno no sound
             if amp[row] > 0:
                 frame += amp[row] * np.sin(2 * np.pi * row_frequencies[row] * t)
 
         # sharp transitions = Spectral Leakage
-        # A Hann window smoothly changes frame amplitude
+        # A Hann window smoothly changes frame amplitude like adding fade-in and fade-out to each frame 
         frame *= window
         frames.append(frame)
 

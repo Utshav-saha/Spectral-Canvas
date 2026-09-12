@@ -4,11 +4,10 @@ import io
 import base64
 
 def preprocess_image(image_path, mode="L"):
-    # Check if image_path is already a PIL Image object
+    
     if isinstance(image_path, Image.Image):
         image = image_path.convert(mode)
     else:
-        # If it's a string path or bytes, open it normally
         image = Image.open(image_path).convert(mode)
         
     img_format = image.mode
@@ -33,18 +32,20 @@ def resize_image(image, target_width= 16, target_height = 16, mode="L"):
 
     scale = min(target_width / width, target_height / height)
 
+    # image onek choto hole round kore 1 ta dimension e 0 hoye jabe, tai max diye 1 ta dimension ke minimum 1 rakhte holo 
     new_width = max(1, round(width * scale))
     new_height = max(1, round(height * scale))
 
     resized_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS) 
 
-    # Lancz05 resampling algorithm , grayscale desampling er jonno good
+    # Lancz05 resampling algorithm , grayscale resampling er jonno good
 
     if mode == "RGB":
         bg_color = (255, 255, 255)
     else:
         bg_color = 255
 
+    # white bg er majhkhane image paste 
     background = Image.new(mode, (target_width, target_height), bg_color)
     x_padding = (target_width - new_width) // 2
     y_padding = (target_height - new_height) // 2
@@ -60,10 +61,12 @@ def to_activation(image_array, invert=True):
     # 0..255 grey -> 0.0..1.0 amplitude
     activation = image_array.astype(np.float64) / 255.0
 
-    #   black(0)  -> 1.0 
-    #   white(255)-> 0.0  
+    # black(0)  -> 1.0 
+    # white(255)-> 0.0  
     if invert:
         activation = 1.0 - activation
+
+    # white bg padding pixel gulake 0.0 amplitude e convert kora holo, jate white bg er karone unwanted sound na hoy
 
     return activation
 
@@ -72,7 +75,7 @@ def quantize(activation, levels=16):
     # the paper uses G = 16 gray-tones; snap the amplitudes to that many steps.
     # pass levels=None to keep the full continuous grayscale.
 
-    # 16 ta interval e vag kora amplitude 
+    # 16 ta interval e vag kora amplitude , infinite gray shade --> 16 ta gray shade 
     if not levels:
         return activation
     return np.round(activation * (levels - 1)) / (levels - 1)
@@ -110,9 +113,13 @@ def process_image(image_path, target_width=16, target_height=16, gray_levels=16,
 
 def activation_to_png_bytes(activation, gray_levels=16, scale=8):
     """Processed source -> a PNG preview the frontend can show next to the result."""
+
+    # reverse activation -> brightness, then scale to 0..255
     if gray_levels:
         activation = np.round(activation * (gray_levels - 1)) / (gray_levels - 1)
     array = ((1.0 - activation) * 255.0).astype(np.uint8)
+
+    # numpy array to image 
     image = Image.fromarray(array, mode="RGB" if array.ndim == 3 else "L")
     if scale > 1:
         image = image.resize((image.width * scale, image.height * scale),
