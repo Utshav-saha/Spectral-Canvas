@@ -1,61 +1,135 @@
+/* ==========================================================================
+   The header is the desk's top rail: a hairline, a maker's mark, and text.
+   The underline grows from the centre on hover and it is the only motion up
+   here, because links are the one thing in this bar you act on. It scales a
+   pseudo-element rather than animating width, so it never triggers layout.
+   ========================================================================== */
+
 .nav {
-  position: sticky; top: 0; z-index: 40;
-  backdrop-filter: blur(12px);
-  background: rgba(237,241,248,.82);
-  border-bottom: 1px solid transparent;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(12, 19, 16, 0.86);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: 0 1px 0 var(--line-soft);
 }
-.nav-inner { display: flex; align-items: center; justify-content: space-between; height: 68px; gap: 20px; }
+
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  height: 62px;
+}
 
 .nav-brand {
-  display: inline-flex; align-items: center; gap: 10px;
-  text-decoration: none; font-weight: 700; font-size: 1.02rem; letter-spacing: -.01em;
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  font-family: var(--display);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  font-variation-settings: 'wdth' 88;
+  letter-spacing: 0.005em;
+  color: var(--ink);
 }
-.nav-bars { display: inline-flex; align-items: center; gap: 2px; height: 22px; }
-.nav-bars i { width: 2.5px; border-radius: 2px; background: var(--indigo); display: block; }
-.nav-bars i:nth-child(2), .nav-bars i:nth-child(4) { background: var(--aqua); }
 
-.nav-links { display: flex; align-items: center; gap: 30px; }
+/* the maker's mark: eight lanes, the product's own structure */
+.nav-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 20px;
+}
+.nav-bars i {
+  width: 2px;
+  border-radius: 1px;
+  background: var(--lcd-1);
+  transition: background 0.25s var(--ease);
+}
+.nav-brand:hover .nav-bars i { background: var(--lcd-0); }
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
 
 .nav-link {
   position: relative;
-  background: none; border: none; padding: 6px 0;
-  text-decoration: none; cursor: pointer;
-  font-size: var(--t-sm); font-weight: 500; color: var(--ink);
+  padding: 9px 14px;
+  font-size: var(--t-sm);
+  font-weight: 550;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: color 0.18s var(--ease);
 }
+.nav-link:hover,
+.nav-link.active { color: var(--ink); }
 .nav-link::after {
-  content: ''; position: absolute; left: 50%; bottom: 0;
-  height: 1.5px; width: 0; background: var(--indigo);
-  transform: translateX(-50%);
-  transition: width .26s var(--ease);
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 4px;
+  height: 1px;
+  background: var(--lcd-0);
+  transform: scaleX(0);
+  transition: transform 0.26s var(--ease-out);
 }
-.nav-link:hover::after, .nav-link:focus-visible::after, .nav-link.active::after { width: 100%; }
+.nav-link:hover::after,
+.nav-link.active::after { transform: scaleX(1); }
 
 .nav-drop { position: relative; }
+
 .nav-menu {
-  position: absolute; top: calc(100% + 10px); left: 50%;
-  transform: translateX(-50%) translateY(-6px);
-  width: 244px; padding: 7px;
-  background: var(--surface);
-  border: 1px solid var(--line);
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 268px;
+  padding: 7px;
   border-radius: var(--r-md);
-  box-shadow: var(--shadow-panel);
-  display: flex; flex-direction: column; gap: 2px;
-  opacity: 0; visibility: hidden;
-  transition: opacity .2s var(--ease), transform .2s var(--ease), visibility .2s;
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--line), var(--lift-2);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-5px);
+  transition: opacity 0.18s var(--ease), transform 0.18s var(--ease), visibility 0.18s;
 }
-.nav-menu.is-open { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+.nav-menu.is-open {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
 
 .nav-menu button {
-  text-align: left; background: none; border: none; cursor: pointer;
-  padding: 9px 11px; border-radius: var(--r-sm);
-  display: flex; flex-direction: column; gap: 1px;
-  transition: background .14s var(--ease);
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s var(--ease);
 }
-.nav-menu button:hover { background: var(--indigo-soft); }
-.nav-menu b { font-size: var(--t-sm); font-weight: 600; }
-.nav-menu span { font-size: var(--t-xs); color: var(--slate); }
+.nav-menu button:hover { background: var(--raised); }
+.nav-menu button b {
+  display: block;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+.nav-menu button span {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
 
-@media (max-width: 720px) {
-  .nav-links { gap: 18px; }
-  .nav-links .nav-link[href="#how"] { display: none; }
+@media (max-width: 700px) {
+  .nav-inner { height: 56px; gap: 10px; }
+  .nav-brand span:last-child { display: none; }
+  .nav-link { padding: 9px 9px; font-size: 0.8125rem; }
+  .nav-link::after { left: 9px; right: 9px; }
+  .nav-menu { width: min(268px, calc(100vw - 32px)); }
 }

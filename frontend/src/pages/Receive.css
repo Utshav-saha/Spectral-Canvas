@@ -1,32 +1,96 @@
-.rcv { padding: 46px 28px 110px; }
-.rcv-grid { display: grid; grid-template-columns: 380px 1fr; gap: 22px; align-items: start; }
-.rcv-left { padding: 22px; display: flex; flex-direction: column; gap: 14px; }
-.rcv-right { display: flex; flex-direction: column; gap: 22px; }
+/* ==========================================================================
+   Receive. Mirrors Send's module language; .drop, .filecard, .lockfields,
+   .module and .switch all come from Simulate.css, imported first.
+   ========================================================================== */
 
-.status {
-  display: flex; gap: 10px; align-items: flex-start;
-  padding: 13px 15px; border-radius: var(--r-md); border: 1px solid;
-  font-size: var(--t-sm); line-height: 1.55;
+.rcv { position: relative; z-index: 1; padding-bottom: 110px; }
+
+.rcv-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
+  gap: 26px;
+  align-items: start;
 }
-.status-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
-.status-open   { background: var(--aqua-soft);  border-color: #9BD6D3; color: #0A6B6B; }
-.status-open .status-dot { background: var(--aqua); }
-.status-locked { background: var(--coral-soft); border-color: #F3B39C; color: #8E3116; }
-.status-locked .status-dot { background: var(--coral); }
 
-.unlock { display: flex; flex-direction: column; gap: 12px; }
+.rcv-right {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.rcv-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.unlock {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
 .rcv-go { width: 100%; }
 
-.recovered { padding: 22px; }
-.recovered-img {
-  width: 100%; display: block; border-radius: var(--r-md);
-  background: #fff; border: 1px solid var(--line);
-  image-rendering: pixelated;
+.recovered-meta {
+  font-size: var(--t-xs);
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
 }
-.recovered-foot {
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-  gap: 12px; margin-top: 14px;
-}
-.recovered-foot span { font-size: var(--t-xs); color: var(--slate); }
 
-@media (max-width: 980px) { .rcv-grid { grid-template-columns: 1fr; } }
+/* The rebuilt picture arrives the way the decoder works: one slice at a time,
+   down the frame. Same motion as the console's screen waking up. */
+.recovered-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: var(--inset-well), inset 0 0 0 1px var(--line-soft);
+}
+.recovered-img {
+  display: block;
+  width: 100%;
+  image-rendering: pixelated;
+  animation: paint-down 1.05s var(--ease-out) both;
+}
+@keyframes paint-down {
+  from { clip-path: inset(0 0 100% 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+/* the bright line that leads the paint */
+.recovered-frame::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--lcd-0);
+  box-shadow: 0 0 12px rgba(168, 183, 138, 0.9);
+  animation: paint-line 1.05s var(--ease-out) both;
+  pointer-events: none;
+}
+@keyframes paint-line {
+  from { top: 0; opacity: 1; }
+  90%  { opacity: 1; }
+  to   { top: 100%; opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .recovered-frame::after { display: none; }
+}
+
+.recovered-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+}
+.recovered-foot .field-note { flex: 1 1 32ch; margin-top: 0; }
+
+@media (max-width: 1080px) {
+  .rcv-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 620px) {
+  .recovered-foot .btn { width: 100%; }
+}

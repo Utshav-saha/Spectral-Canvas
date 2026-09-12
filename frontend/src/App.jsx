@@ -7,18 +7,20 @@ import Receive from './pages/Receive'
 export default function App() {
   return (
     <BrowserRouter>
-      <NavBar />
-      <Routes>
-        <Route path="/" element={<Landing />} />
-        <Route path="/simulate" element={<Simulate />} />
-        <Route path="/receive" element={<Receive />} />
-      </Routes>
-      <footer className="site-foot">
-        <div className="shell">
-          <span>Spectral Canvas — Signals and Systems coursework</span>
-          <span className="mono">rows are pitches · columns are moments</span>
-        </div>
-      </footer>
+      <div className="app-frame">
+        <NavBar />
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/simulate" element={<Simulate />} />
+          <Route path="/receive" element={<Receive />} />
+        </Routes>
+        <footer className="site-foot">
+          <div className="shell">
+            <span className="foot-mark">Spectral Canvas &mdash; Signals and Systems coursework</span>
+            <span className="foot-line">rows are pitches &middot; columns are moments</span>
+          </div>
+        </footer>
+      </div>
     </BrowserRouter>
   )
 }

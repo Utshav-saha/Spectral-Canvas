@@ -1,0 +1,420 @@
+/* ==========================================================================
+   DMG-01. A solid object in a dark room, lit from the upper left.
+
+   The depth is built the way a real moulding is: an inset highlight along the
+   lit edge, an inset shade along the shadowed one, two hard offset plates for
+   the body of the extrusion, and a wide soft cast underneath. No borders do
+   any of this work. The shell's swept bottom-right corner is the house shape
+   and it recurs nowhere else, so the object stays singular.
+   ========================================================================== */
+
+.dmg {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  max-width: 546px;
+  padding: 50px 28px 30px;
+  border-radius: var(--r-shell);
+  background:
+    linear-gradient(118deg, var(--bone-hi) 0%, var(--bone) 46%, var(--bone-lo) 100%);
+  box-shadow:
+    inset 3px 3px 4px rgba(255, 255, 255, 0.85),
+    inset -6px -4px 6px rgba(120, 116, 100, 0.42),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.5),
+    9px 13px 0 -3px var(--bone-edge),
+    14px 19px 0 -6px #8E8878,
+    18px 28px 26px -12px rgba(0, 0, 0, 0.55),
+    34px 52px 74px -26px rgba(0, 0, 0, 0.75);
+  transform: rotate(-1.1deg);
+  transition: transform 0.5s var(--ease-out);
+}
+@media (min-width: 981px) {
+  .dmg:hover { transform: rotate(-0.4deg) translateY(-3px); }
+}
+
+/* the seam that runs across the top of the case */
+.dmg::before {
+  content: '';
+  position: absolute;
+  top: 27px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-top: 1px solid rgba(120, 116, 100, 0.5);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.65);
+  pointer-events: none;
+}
+/* the two vertical case seams either side of the switch */
+.dmg::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 30px;
+  width: calc(100% - 60px);
+  height: 28px;
+  border-inline: 2px solid rgba(140, 136, 118, 0.34);
+  pointer-events: none;
+}
+
+/* --- power switch: a real control on the top edge ----------------------- */
+.dmg-power {
+  position: absolute;
+  top: -11px;
+  left: 58px;
+  width: 46px;
+  height: 14px;
+  padding: 0;
+  border-radius: 5px 5px 0 0;
+  background: #918C7C;
+  box-shadow: inset 0 0 0 1px #6E6A5C, inset 0 2px 2px rgba(255, 255, 255, 0.28);
+  cursor: pointer;
+  z-index: -1;
+}
+.dmg-power i {
+  display: block;
+  width: 22px;
+  height: 10px;
+  margin: 2px 0 0 2px;
+  border-radius: 3px 3px 0 0;
+  background: repeating-linear-gradient(90deg, #C9C4B2 0 2px, #6E6A5C 2px 4px);
+  transition: transform 0.18s var(--ease);
+}
+.dmg-power.is-on i { transform: translateX(19px); }
+
+.dmg-top {
+  position: absolute;
+  top: 9px;
+  left: 52px;
+  font-family: var(--display);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #96917F;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* --- bezel: a separate dark moulding the screen is set into ------------- */
+.dmg-bezel {
+  position: relative;
+  padding: 30px 26px 34px 48px;
+  border-radius: 12px 12px 46px 12px;
+  background: linear-gradient(150deg, #6A6E63, #565A50);
+  box-shadow:
+    inset 1px 1px 3px rgba(0, 0, 0, 0.5),
+    inset -1px -1px 0 rgba(255, 255, 255, 0.08),
+    0 2px 0 rgba(255, 255, 255, 0.6);
+}
+
+.dmg-bezel-head {
+  position: absolute;
+  top: 11px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--display);
+  font-size: 7px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  color: #D6D3C6;
+}
+.dmg-bezel-head i {
+  flex: 1;
+  height: 4px;
+  border-top: 2px solid var(--oxide);
+  border-bottom: 1px solid #3C4A38;
+}
+
+.dmg-battery {
+  position: absolute;
+  top: 74px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.dmg-battery i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3A3F36;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.7);
+  transition: background 0.3s var(--ease), box-shadow 0.3s var(--ease);
+}
+.dmg-battery i.is-lit {
+  background: var(--lcd-0);
+  box-shadow: 0 0 7px rgba(168, 183, 138, 0.85), inset 0 1px 1px rgba(255, 255, 255, 0.55);
+}
+.dmg-battery i.is-locked {
+  background: var(--oxide-hi);
+  box-shadow: 0 0 7px rgba(166, 59, 70, 0.9), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+}
+.dmg-battery em {
+  font-family: var(--display);
+  font-size: 5.5px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #DAD7CA;
+}
+
+/* --- the panel ---------------------------------------------------------- */
+.dmg-screen {
+  position: relative;
+  overflow: hidden;
+  background: var(--lcd-2);
+  box-shadow:
+    inset 0 0 0 3px #4A5240,
+    inset 4px 5px 10px rgba(20, 40, 16, 0.42),
+    0 0 0 1px #8B8E7C;
+}
+.dmg-screen canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+.dmg-screen:focus-visible { outline: 2px solid var(--lcd-0); outline-offset: 4px; }
+
+/* the physical dot grid of an STN panel, at the panel's own pitch */
+.dmg-matrix {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0.34;
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 3px, rgba(35, 48, 31, 0.5) 3px 4px),
+    repeating-linear-gradient(90deg, transparent 0 3px, rgba(35, 48, 31, 0.34) 3px 4px);
+}
+/* the sheet of glass over it, catching the same single light source */
+.dmg-glare {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  background: linear-gradient(128deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.03) 26%, transparent 46%);
+}
+.dmg.is-on .dmg-screen { box-shadow: inset 0 0 0 3px #4A5240, inset 4px 5px 10px rgba(20, 40, 16, 0.42), 0 0 0 1px #8B8E7C, 0 0 36px -6px var(--lcd-glow); }
+
+/* --- brand -------------------------------------------------------------- */
+.dmg-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 15px 4px 0;
+  color: #4A4F44;
+}
+.dmg-brand strong {
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 800;
+  font-style: italic;
+  font-variation-settings: 'wdth' 84;
+  letter-spacing: 0.01em;
+}
+.dmg-brand span {
+  font-family: var(--display);
+  font-size: 26px;
+  font-weight: 500;
+  font-style: italic;
+  font-variation-settings: 'wdth' 112;
+  letter-spacing: -0.03em;
+  color: var(--oxide);
+}
+.dmg-brand sup {
+  align-self: flex-start;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 8px;
+  color: #7C8073;
+}
+
+/* --- controls ----------------------------------------------------------- */
+.dmg-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 26px 2px 6px;
+}
+
+.dmg-dpad-well {
+  width: 136px;
+  height: 136px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.5), rgba(178, 173, 156, 0.28));
+  box-shadow: inset 0 2px 3px rgba(140, 136, 118, 0.45), 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+.dmg-dpad {
+  display: grid;
+  grid-template: repeat(3, 38px) / repeat(3, 38px);
+  filter: drop-shadow(2px 4px 3px rgba(0, 0, 0, 0.45));
+}
+.dmg-dpad button,
+.dmg-hub {
+  display: grid;
+  place-items: center;
+  background: #33372F;
+  cursor: pointer;
+}
+.dmg-dpad button:hover { background: #414639; }
+.dmg-dpad button:active { background: #262A22; }
+.dmg-dpad button svg {
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.12));
+}
+.dmg-up    { grid-area: 1 / 2; border-radius: 5px 5px 0 0; box-shadow: inset 1px 2px 1px rgba(255, 255, 255, 0.16); }
+.dmg-left  { grid-area: 2 / 1; border-radius: 5px 0 0 5px; box-shadow: inset 2px 1px 1px rgba(255, 255, 255, 0.16); }
+.dmg-hub   { grid-area: 2 / 2; }
+.dmg-right { grid-area: 2 / 3; border-radius: 0 5px 5px 0; box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1), inset -2px -2px 1px rgba(0, 0, 0, 0.4); }
+.dmg-down  { grid-area: 3 / 2; border-radius: 0 0 5px 5px; box-shadow: inset 1px 0 1px rgba(255, 255, 255, 0.1), inset -2px -2px 1px rgba(0, 0, 0, 0.4); }
+.dmg-down svg  { transform: rotate(180deg); }
+.dmg-left svg  { transform: rotate(-90deg); }
+.dmg-right svg { transform: rotate(90deg); }
+.dmg-hub i {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.85), 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.dmg-ab {
+  display: flex;
+  gap: 16px;
+  padding: 11px;
+  border-radius: 60px;
+  transform: rotate(-25deg);
+  background: linear-gradient(160deg, rgba(198, 193, 176, 0.55), rgba(238, 235, 224, 0.5));
+  box-shadow: inset 0 2px 3px rgba(150, 146, 128, 0.5), 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+.dmg-ab-slot { position: relative; }
+.dmg-round {
+  display: block;
+  width: 58px;
+  height: 58px;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--oxide-hi), var(--oxide) 52%, var(--oxide-lo));
+  box-shadow:
+    inset 1px 2px 4px rgba(226, 138, 150, 0.5),
+    inset -2px -3px 3px rgba(50, 12, 20, 0.6),
+    2px 5px 5px rgba(0, 0, 0, 0.4);
+  transition: transform 0.09s var(--ease), box-shadow 0.09s var(--ease), filter 0.15s var(--ease);
+}
+.dmg-round:hover { filter: brightness(1.12); }
+.dmg-round:active {
+  transform: translateY(3px);
+  box-shadow: inset 1px 2px 4px rgba(226, 138, 150, 0.45), 0 1px 1px rgba(0, 0, 0, 0.4);
+}
+.dmg-ab-slot em {
+  position: absolute;
+  top: 62px;
+  left: 24px;
+  font-family: var(--display);
+  font-size: 15px;
+  font-style: normal;
+  font-weight: 700;
+  color: #4A4F44;
+}
+
+.dmg-pills {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  margin: 22px 62px 6px 0;
+}
+.dmg-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 4px;
+  transform: rotate(-24deg);
+  font-family: var(--display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #565B4E;
+  cursor: pointer;
+}
+.dmg-pill i {
+  width: 48px;
+  height: 13px;
+  border-radius: 12px;
+  background: #9A968A;
+  box-shadow:
+    inset 0 2px 1px rgba(214, 210, 196, 0.9),
+    inset 0 0 0 1px #7F7C70,
+    1px 3px 1px rgba(160, 156, 140, 0.9),
+    0 5px 3px rgba(0, 0, 0, 0.22);
+  transition: transform 0.09s var(--ease), background 0.15s var(--ease);
+}
+.dmg-pill:hover i { background: #86837A; }
+.dmg-pill:active i { transform: translateY(2px); }
+
+.dmg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 5px 8px;
+  margin: 10px 62px 0 0;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  color: #8B8778;
+}
+.dmg-legend span {
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(90, 86, 74, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(90, 86, 74, 0.28);
+  font-weight: 600;
+  color: #5E6254;
+}
+
+.dmg-speaker {
+  position: absolute;
+  right: 26px;
+  bottom: 34px;
+  display: flex;
+  gap: 9px;
+  padding: 0;
+  transform: rotate(-28deg);
+  cursor: pointer;
+}
+.dmg-speaker i {
+  width: 7px;
+  height: 50px;
+  border-radius: 6px;
+  background: #ABA79A;
+  box-shadow: inset 2px 1px 2px rgba(120, 116, 100, 0.6), 1px 1px 0 rgba(255, 253, 244, 0.6);
+  transition: background 0.15s var(--ease);
+}
+.dmg-speaker:hover i { background: #948F82; }
+
+/* --------------------------------------------------------------------------
+   Small screens: the console stops tilting and gives back its side margins.
+   -------------------------------------------------------------------------- */
+@media (max-width: 700px) {
+  .dmg { transform: none; padding: 46px 20px 26px; }
+  .dmg-bezel { padding: 28px 18px 30px 40px; }
+  .dmg-dpad-well { width: 116px; height: 116px; }
+  .dmg-dpad { grid-template: repeat(3, 32px) / repeat(3, 32px); }
+  .dmg-round { width: 50px; height: 50px; }
+  .dmg-ab-slot em { top: 54px; left: 20px; font-size: 13px; }
+  .dmg-speaker { right: 18px; bottom: 30px; }
+  .dmg-speaker i { height: 42px; width: 6px; }
+  .dmg-pills { margin-right: 48px; }
+}
+@media (max-width: 420px) {
+  .dmg-speaker { display: none; }
+  .dmg-pills { margin-right: 0; }
+  .dmg-legend { margin-right: 0; }
+}

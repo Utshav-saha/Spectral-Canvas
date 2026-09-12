@@ -1,109 +1,463 @@
-.sim { padding: 46px 28px 110px; }
+/* ==========================================================================
+   Send. An Operate surface: the task outranks the expression, so the world
+   lives in the material of the modules, the silkscreen labels and the state
+   vocabulary rather than in anything that could get between a user and the
+   send button.
 
-.sim-head { margin-bottom: 28px; }
-.sim-title { font-size: var(--t-h2); font-weight: 800; letter-spacing: -.028em; margin-bottom: 8px; }
-.sim-sub { color: var(--slate); font-size: var(--t-sm); max-width: 56ch; }
+   Receive.jsx imports this file before its own: .drop, .filecard, .lockfields,
+   .switch and .module are defined here and shared. Keep that import order.
+   ========================================================================== */
 
-.sim-modes { display: flex; gap: 4px; margin-bottom: 22px; border-bottom: 1px solid var(--line); }
-.sim-mode {
-  position: relative; background: none; border: none; cursor: pointer;
-  padding: 11px 16px; font-size: var(--t-sm); font-weight: 500; color: var(--slate);
-  transition: color .16s var(--ease);
+.sim { position: relative; z-index: 1; padding-bottom: 96px; }
+
+/* The header band runs the full frame: the claim on the left, the parameters
+   this page is actually operating under on the right, set as a readout against
+   the hairline. Half an empty band is the Operate pages failing to inherit the
+   desk. */
+.sim-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 40px 56px;
+  flex-wrap: wrap;
+  padding-block: 44px 0;
 }
-.sim-mode::after {
-  content: ''; position: absolute; left: 16px; right: 16px; bottom: -1px;
-  height: 2px; background: var(--indigo);
-  transform: scaleX(0); transition: transform .24s var(--ease);
+.sim-head-copy { max-width: 58ch; }
+
+.head-readout {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 7px 26px;
+  padding-bottom: 5px;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
 }
-.sim-mode:hover { color: var(--ink); }
-.sim-mode.is-on { color: var(--ink); font-weight: 600; }
-.sim-mode.is-on::after { transform: scaleX(1); }
+.head-readout dt {
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.head-readout dd {
+  margin: 0;
+  text-align: right;
+  color: var(--ink-2);
+}
 
-.sim-grid { display: grid; grid-template-columns: 1fr 332px; gap: 22px; align-items: start; }
-.sim-source { padding: 22px; min-height: 330px; }
-.sim-settings { padding: 22px; position: sticky; top: 88px; }
+.sim-title {
+  font-size: clamp(2rem, 3.8vw, 2.9rem);
+  font-weight: 800;
+  font-variation-settings: 'wdth' 86;
+  line-height: 1.0;
+  letter-spacing: -0.03em;
+}
+.sim-sub {
+  margin-top: 16px;
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
 
-.sim-h2 { font-size: var(--t-h3); font-weight: 700; margin-bottom: 16px; letter-spacing: -.012em; }
-.sim-rule { border: none; border-top: 1px solid var(--line); margin: 20px 0; }
+/* --------------------------------------------------------------------------
+   The stage rail. Real progress through a real four-step sequence, in the
+   site's one state vocabulary.
+   -------------------------------------------------------------------------- */
+.stagerail {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-wrap: wrap;
+  margin: 36px 0 34px;
+  padding-block: 14px;
+  border-block: 1px solid var(--line-soft);
+}
+.stagerail li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-right: 22px;
+  margin-right: 22px;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border-right: 1px solid var(--line-soft);
+}
+.stagerail li:last-child { border-right: 0; margin-right: 0; padding-right: 0; }
+.stagerail li.is-done { color: var(--ink-2); }
+.stagerail li.is-done .led { background: var(--lcd-2); box-shadow: none; }
+.stagerail li.is-now { color: var(--lcd-0); }
+.stagerail li.is-now .led {
+  background: var(--lcd-0);
+  box-shadow: 0 0 7px rgba(168, 183, 138, 0.8), inset 0 1px 1px rgba(255, 255, 255, 0.45);
+}
 
-/* ---- drop zone ---- */
+/* --------------------------------------------------------------------------
+   Modules. A bench module: a silkscreen head, a body, and a foot rail.
+   -------------------------------------------------------------------------- */
+.sim-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 26px;
+  align-items: start;
+}
+
+.module {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), var(--lift-2);
+}
+
+.module-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 15px 20px 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.module-head h2 {
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.module-hint {
+  padding: 13px 20px 0;
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+}
+
+.module-body { padding: 20px; }
+.module-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px 20px;
+  border-top: 1px solid var(--line-soft);
+}
+.module-rule { height: 1px; margin: 22px 0; border: 0; background: var(--line-soft); }
+
+/* --------------------------------------------------------------------------
+   Mode switch: a physical rocker, not a row of pills
+   -------------------------------------------------------------------------- */
+.modeswitch {
+  display: flex;
+  padding: 3px;
+  border-radius: var(--r-sm);
+  background: var(--well);
+  box-shadow: var(--inset-well);
+}
+.modeswitch-b {
+  padding: 7px 15px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color 0.16s var(--ease), background 0.16s var(--ease), box-shadow 0.16s var(--ease);
+}
+.modeswitch-b:hover { color: var(--ink-2); }
+.modeswitch-b.is-on {
+  background: var(--raised);
+  color: var(--lcd-0);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* --------------------------------------------------------------------------
+   Drop target
+   -------------------------------------------------------------------------- */
 .drop {
-  border: 1.5px dashed var(--line); border-radius: var(--r-md);
-  padding: 46px 26px; text-align: center;
-  display: flex; flex-direction: column; align-items: center; gap: 12px;
-  background: var(--paper-deep);
-  transition: border-color .18s var(--ease), background .18s var(--ease);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 13px;
+  min-height: 320px;
+  padding: 34px 26px;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: var(--inset-well), inset 0 0 0 1px var(--line);
+  text-align: center;
+  transition: box-shadow 0.2s var(--ease);
 }
-.drop.is-over { border-color: var(--indigo); background: var(--indigo-soft); }
-.drop-title { font-size: var(--t-h3); font-weight: 600; }
-.drop-hint { font-size: var(--t-sm); color: var(--slate); max-width: 42ch; }
-.drop-btn { cursor: pointer; }
+.drop.is-over {
+  box-shadow: var(--inset-well), inset 0 0 0 2px var(--lcd-1), 0 0 0 4px rgba(168, 183, 138, 0.13);
+}
+.drop-title { font-size: 1.0625rem; font-weight: 650; color: var(--ink); }
+.drop-hint { max-width: 40ch; font-size: var(--t-sm); line-height: 1.55; color: var(--ink-3); }
+.drop-btn { margin-top: 6px; cursor: pointer; }
 .drop-preview {
-  max-width: 100%; max-height: 260px; border-radius: var(--r-sm);
-  box-shadow: var(--shadow-panel); background: #fff;
+  max-height: 210px;
+  border-radius: var(--r-sm);
+  box-shadow: 0 8px 22px -10px rgba(0, 0, 0, 0.8);
 }
-.drop-name { font-size: var(--t-xs); color: var(--slate); }
+.drop-name { font-size: var(--t-xs); color: var(--ink-2); word-break: break-all; }
 
-/* ---- text ---- */
-.text-pane { display: flex; flex-direction: column; gap: 12px; }
-.toggle { display: inline-flex; background: var(--paper-deep); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 3px; width: fit-content; }
+/* --------------------------------------------------------------------------
+   Text pane
+   -------------------------------------------------------------------------- */
+.toggle {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: var(--r-sm);
+  background: var(--well);
+  box-shadow: var(--inset-well);
+}
 .toggle button {
-  border: none; background: none; cursor: pointer;
-  padding: 7px 15px; border-radius: 4px; font-size: var(--t-xs); font-weight: 500; color: var(--slate);
-  transition: background .16s var(--ease), color .16s var(--ease);
+  padding: 7px 15px;
+  border-radius: 3px;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color 0.16s var(--ease), background 0.16s var(--ease);
 }
-.toggle button.is-on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(20,24,47,.1); }
-.toggle-hint { font-size: var(--t-xs); color: var(--slate); }
-.text-area { font-family: var(--mono); line-height: 1.6; resize: vertical; }
-.text-count { font-size: var(--t-xs); color: var(--slate); text-align: right; }
+.toggle button.is-on { background: var(--raised); color: var(--lcd-0); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
+.toggle-hint { margin: 12px 0 16px; max-width: 56ch; font-size: var(--t-sm); line-height: 1.55; color: var(--ink-3); }
 
-/* ---- switches ---- */
-.switch { display: flex; align-items: center; gap: 9px; cursor: pointer; margin-top: 16px; font-size: var(--t-sm); font-weight: 500; }
-.switch input { width: 17px; height: 17px; accent-color: var(--indigo); cursor: pointer; }
-.switch-note { font-size: var(--t-xs); color: var(--slate); margin-top: 5px; line-height: 1.55; }
+.text-area { resize: vertical; min-height: 190px; line-height: 1.6; }
+.text-count {
+  margin-top: 9px;
+  font-size: var(--t-xs);
+  text-align: right;
+  color: var(--ink-3);
+}
+.text-count span { color: var(--ink-2); }
 
-.lockfields { display: flex; flex-direction: column; gap: 12px; margin-top: 15px; padding: 14px; background: var(--coral-soft); border-radius: var(--r-sm); }
-.sim-send { width: 100%; margin-top: 20px; }
-.sim-settings .alert { margin-top: 12px; }
+/* --------------------------------------------------------------------------
+   Fields, switches
+   -------------------------------------------------------------------------- */
+.field { margin-bottom: 20px; }
+.field-note {
+  margin-top: 8px;
+  font-size: var(--t-xs);
+  line-height: 1.55;
+  color: var(--ink-3);
+}
 
-/* ---- result ---- */
-.sim-result { margin-top: 44px; padding-top: 32px; border-top: 1px solid var(--line); }
-.result-grid { display: grid; grid-template-columns: 300px 1fr; gap: 22px; align-items: start; }
-.file-col { display: flex; flex-direction: column; gap: 12px; }
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch-box {
+  flex: none;
+  position: relative;
+  width: 38px;
+  height: 21px;
+  border-radius: 11px;
+  background: var(--well);
+  box-shadow: var(--inset-well), inset 0 0 0 1px var(--line-soft);
+  transition: background 0.2s var(--ease), box-shadow 0.2s var(--ease);
+}
+.switch-box::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #6E7A66, #48543F);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  transition: transform 0.2s var(--ease), background 0.2s var(--ease);
+}
+.switch input:checked + .switch-box { background: rgba(126, 145, 102, 0.3); }
+.switch input:checked + .switch-box::after {
+  transform: translateX(17px);
+  background: linear-gradient(180deg, var(--lcd-0), var(--lcd-1));
+}
+.switch input:focus-visible + .switch-box { outline: 2px solid var(--lcd-0); outline-offset: 3px; }
+.switch-text { font-size: var(--t-sm); font-weight: 600; color: var(--ink); }
+
+.lockfields {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: var(--inset-well);
+}
+
+.sim-send { width: 100%; }
+
+/* --------------------------------------------------------------------------
+   Result
+   -------------------------------------------------------------------------- */
+.sim-result { margin-top: 64px; }
+
+.result-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+  gap: 26px;
+  align-items: start;
+}
 
 .filecard {
-  display: flex; align-items: center; gap: 12px; width: 100%;
-  padding: 13px; cursor: pointer; text-align: left;
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
-  transition: border-color .16s var(--ease), box-shadow .16s var(--ease), transform .16s var(--ease);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--line-soft), var(--lift-1);
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow 0.18s var(--ease), transform 0.12s var(--ease);
 }
-.filecard:hover { border-color: var(--indigo); transform: translateY(-1px); }
-.filecard.is-on { border-color: var(--indigo); box-shadow: 0 0 0 3px var(--indigo-soft); }
+.filecard:hover { transform: translateY(-1px); box-shadow: inset 0 0 0 1px var(--line), var(--lift-2); }
+.filecard.is-on { box-shadow: inset 0 0 0 1px var(--lcd-2), 0 0 0 3px rgba(168, 183, 138, 0.12), var(--lift-1); }
 .filecard-icon {
-  width: 40px; height: 40px; flex-shrink: 0; border-radius: var(--r-sm);
-  background: var(--indigo-soft); color: var(--indigo);
-  display: grid; place-items: center; font-size: .58rem; font-weight: 700;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--r-sm);
+  background: var(--well);
+  box-shadow: var(--inset-well);
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  color: var(--lcd-0);
 }
-.filecard-body { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
-.filecard-body b { font-size: var(--t-sm); }
-.filecard-body span { font-size: var(--t-xs); color: var(--slate); }
+.filecard-body { flex: 1; min-width: 0; }
+.filecard-body b { display: block; font-size: var(--t-sm); font-weight: 600; color: var(--ink); }
+.filecard-body span { display: block; margin-top: 2px; font-size: var(--t-xs); color: var(--ink-3); }
 .filecard-tag {
-  font-size: .62rem; font-weight: 600; padding: 3px 8px; border-radius: 999px;
-  background: var(--aqua-soft); color: #0A6B6B;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border-radius: 3px;
+  background: rgba(126, 145, 102, 0.16);
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  color: var(--lcd-0);
 }
-.filecard-tag.locked { background: var(--coral-soft); color: #8E3116; }
+.filecard-tag.locked { background: rgba(140, 47, 57, 0.22); color: #EFC3C4; }
 
-.sent-preview { padding: 12px; background: var(--paper-deep); border: 1px solid var(--line); border-radius: var(--r-md); }
-.sent-preview img { width: 100%; display: block; border-radius: var(--r-sm); image-rendering: pixelated; background: #fff; }
-.sent-preview figcaption { margin-top: 8px; font-size: var(--t-xs); color: var(--slate); text-align: center; }
+.sent-preview { margin-top: 20px; }
+.sent-preview img {
+  width: 100%;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: var(--inset-well), inset 0 0 0 1px var(--line-soft);
+  image-rendering: pixelated;
+}
+.sent-preview figcaption {
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
+}
 
-.result-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.result-actions .btn { text-decoration: none; }
+.result-actions { display: flex; gap: 11px; flex-wrap: wrap; margin-top: 20px; }
 
-.scope-col { padding: 20px; min-height: 300px; }
-.scope-empty { color: var(--slate); font-size: var(--t-sm); }
+.scope-col { padding: 20px; min-height: 260px; }
 
-@media (max-width: 980px) {
-  .sim-grid, .result-grid { grid-template-columns: 1fr; }
-  .sim-settings { position: static; }
+/* The idle scope is a panel that is switched on and waiting, not a blank
+   card: the same dot matrix as the console, with the scanline still sweeping
+   because that is exactly what the decoder does to a file when one arrives. */
+.scope-empty {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  padding: 24px;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--lcd-3);
+  box-shadow: inset 0 0 0 3px #2E3A28, inset 4px 5px 12px rgba(0, 0, 0, 0.6);
+  font-family: var(--mono);
+  font-size: var(--t-sm);
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: var(--lcd-0);  /* 6.5:1 on --lcd-3; --lcd-1 only reaches 4.1:1 */
+}
+.scope-empty::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 3px, rgba(10, 18, 8, 0.55) 3px 4px),
+    repeating-linear-gradient(90deg, transparent 0 3px, rgba(10, 18, 8, 0.4) 3px 4px);
+}
+.scope-empty::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--lcd-1), transparent);
+  opacity: 0.55;
+  animation: scope-sweep 3.6s linear infinite;
+}
+@keyframes scope-sweep {
+  from { top: -2px; }
+  to   { top: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scope-empty::after { display: none; }
+}
+
+/* --------------------------------------------------------------------------
+   Adaptation
+   -------------------------------------------------------------------------- */
+@media (max-width: 1080px) {
+  .sim-grid { grid-template-columns: minmax(0, 1fr); }
+  .result-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 900px) {
+  /* Once the band cannot hold both parts side by side it stops being a band:
+     it stacks, and the readout stretches to the full frame so its value column
+     still anchors on the same right edge everything else on the page uses.
+     Relying on width:100% inside a wrapped flex row left the figures stranded
+     mid-track, so the stack is made explicit. */
+  .sim-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .head-readout {
+    grid-template-columns: auto 1fr;
+    gap: 6px 20px;
+    padding-top: 4px;
+    border-top: 1px solid var(--line-soft);
+  }
+  .head-readout dt { padding-top: 3px; }
+  .head-readout dd { padding-top: 3px; }
+}
+@media (max-width: 620px) {
+  .sim-head { padding-top: 32px; gap: 26px; }
+  .head-readout { font-size: 0.6875rem; gap: 5px 16px; }
+  .stagerail { margin: 26px 0; gap: 10px 0; }
+  .stagerail li { padding-right: 14px; margin-right: 14px; }
+  .module-head { padding: 13px 15px; }
+  .module-body { padding: 15px; }
+  .module-foot { padding: 15px; }
+  .module-hint { padding: 12px 15px 0; }
+  .modeswitch { width: 100%; }
+  .modeswitch-b { flex: 1; padding: 8px 6px; text-align: center; }
+  .drop { min-height: 240px; padding: 24px 16px; }
+  .result-actions .btn { flex: 1 1 auto; }
 }

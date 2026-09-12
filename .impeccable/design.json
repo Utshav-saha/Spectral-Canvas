@@ -1,0 +1,215 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-12T00:00:00Z",
+  "title": "Design System: Spectral Canvas",
+  "extensions": {
+    "colorMeta": {
+      "void": { "role": "neutral", "displayName": "Void", "canonical": "#0C1310", "tonalRamp": ["#050807", "#0C1310", "#121C17", "#1B2620", "#2A3A2C", "#3E5240", "#6B8168", "#A9B8A4"] },
+      "room": { "role": "neutral", "displayName": "Room", "canonical": "#121C17", "tonalRamp": ["#060A08", "#0C1310", "#121C17", "#1B2620", "#26332B", "#3A4C40", "#68806E", "#A6BBAC"] },
+      "panel": { "role": "neutral", "displayName": "Panel", "canonical": "#1B2620", "tonalRamp": ["#080C0A", "#0F1814", "#1B2620", "#26342D", "#33453A", "#4C6455", "#7C9A88", "#B7CCC0"] },
+      "raised": { "role": "neutral", "displayName": "Raised", "canonical": "#2A3A2C", "tonalRamp": ["#0B0F0B", "#141C15", "#1F2B21", "#2A3A2C", "#3B5140", "#557159", "#89A78D", "#C0D3C3"] },
+      "well": { "role": "neutral", "displayName": "Well", "canonical": "#0F1814", "tonalRamp": ["#050807", "#0A100D", "#0F1814", "#16221C", "#1F3028", "#2F483C", "#5E7C6D", "#9EB8AB"] },
+      "line": { "role": "neutral", "displayName": "Hairline (active edge)", "canonical": "#33453A", "tonalRamp": ["#0E1310", "#161E19", "#223129", "#33453A", "#44594C", "#5C755F", "#8FA894", "#C6D6C9"] },
+      "line-soft": { "role": "neutral", "displayName": "Hairline (structural)", "canonical": "#223129", "tonalRamp": ["#090D0B", "#111813", "#1A241D", "#223129", "#2E4136", "#425A4A", "#799281", "#B3C7BA"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#E4EADD", "tonalRamp": ["#232719", "#3A422F", "#525C45", "#6E795F", "#8E997E", "#B0B99F", "#CBD3BF", "#E4EADD"] },
+      "ink-2": { "role": "neutral", "displayName": "Ink Secondary", "canonical": "#A9B8A4", "tonalRamp": ["#191E17", "#293123", "#3D4835", "#546148", "#6E7D61", "#8B9B7E", "#A9B8A4", "#CBD8C7"] },
+      "ink-3": { "role": "neutral", "displayName": "Ink Tertiary", "canonical": "#869A82", "tonalRamp": ["#141810", "#22291C", "#333D2B", "#46523B", "#5B6A4E", "#728364", "#869A82", "#AEC0AA"] },
+      "bone": { "role": "tertiary", "displayName": "Bone Ivory", "canonical": "#E8E4D6", "tonalRamp": ["#26241C", "#3E3B2E", "#575342", "#726D58", "#918B72", "#B2AC92", "#CFC9B4", "#E8E4D6"] },
+      "bone-hi": { "role": "tertiary", "displayName": "Bone Lit Face", "canonical": "#F4F1E7", "tonalRamp": ["#2A2820", "#434033", "#5D5946", "#79745C", "#989275", "#B9B396", "#D7D2BC", "#F4F1E7"] },
+      "bone-lo": { "role": "tertiary", "displayName": "Bone Underside", "canonical": "#C4BEAA", "tonalRamp": ["#1F1D16", "#343125", "#4A4635", "#625D47", "#7C765B", "#9A9375", "#B0AA92", "#C4BEAA"] },
+      "bone-edge": { "role": "tertiary", "displayName": "Bone Case Edge", "canonical": "#A8A292", "tonalRamp": ["#1A1813", "#2C2A20", "#3F3C2E", "#54503E", "#6B664F", "#847F63", "#948E7A", "#A8A292"] },
+      "bone-ink": { "role": "tertiary", "displayName": "Shell Silkscreen Ink", "canonical": "#5C6152", "tonalRamp": ["#0F1009", "#1B1D13", "#2A2C1E", "#3B3E2B", "#4C5039", "#5C6152", "#8C917E", "#BEC2B0"] },
+      "lcd-0": { "role": "secondary", "displayName": "Screen Highlight", "canonical": "#A8B78A", "tonalRamp": ["#1B2014", "#2C331F", "#40492D", "#56613D", "#6D7A4F", "#889669", "#A8B78A", "#CCD8B4"] },
+      "lcd-1": { "role": "secondary", "displayName": "Screen Mid (Signal)", "canonical": "#7F9166", "tonalRamp": ["#151A0F", "#232B18", "#333D22", "#45512E", "#59663B", "#6E7D4E", "#7F9166", "#A5B58D"] },
+      "lcd-2": { "role": "secondary", "displayName": "Screen Shade", "canonical": "#4E6144", "tonalRamp": ["#0D1109", "#171E10", "#232D18", "#303D21", "#3F4E2C", "#4E6144", "#748767", "#A3B598" ] },
+      "lcd-3": { "role": "secondary", "displayName": "Screen Ink", "canonical": "#23301F", "tonalRamp": ["#090D07", "#10160C", "#182013", "#23301F", "#33452C", "#465C3C", "#728A66", "#A6BC9B"] },
+      "oxide": { "role": "primary", "displayName": "Oxide Red", "canonical": "#8C2F39", "tonalRamp": ["#1C0A0C", "#2F1015", "#45181E", "#5C2028", "#742932", "#8C2F39", "#B45662", "#DCA0A8"] },
+      "oxide-hi": { "role": "primary", "displayName": "Oxide Bright", "canonical": "#A63B46", "tonalRamp": ["#210C0F", "#371419", "#4F1D23", "#68262E", "#83313A", "#A63B46", "#C66C76", "#E5B0B6"] },
+      "oxide-lo": { "role": "primary", "displayName": "Oxide Deep", "canonical": "#66202A", "tonalRamp": ["#150708", "#240B0F", "#341116", "#46171E", "#571C25", "#66202A", "#95404C", "#CB8A94"] },
+      "signal": { "role": "secondary", "displayName": "Signal", "canonical": "#7F9166", "tonalRamp": ["#151A0F", "#232B18", "#333D22", "#45512E", "#59663B", "#6E7D4E", "#7F9166", "#A5B58D"] },
+      "open": { "role": "secondary", "displayName": "Open / Recovered", "canonical": "#A8B78A", "tonalRamp": ["#1B2014", "#2C331F", "#40492D", "#56613D", "#6D7A4F", "#889669", "#A8B78A", "#CCD8B4"] },
+      "locked": { "role": "primary", "displayName": "Locked / Peak / Alert", "canonical": "#8C2F39", "tonalRamp": ["#1C0A0C", "#2F1015", "#45181E", "#5C2028", "#742932", "#8C2F39", "#B45662", "#DCA0A8"] }
+    },
+    "typographyMeta": {
+      "hero": { "displayName": "Hero", "purpose": "The Landing claim only. Two lines maximum, balanced, condensed on the width axis." },
+      "headline": { "displayName": "Headline", "purpose": "Section titles inside .rule-head, always followed by a hairline that runs to the frame edge." },
+      "title": { "displayName": "Title", "purpose": "Pipeline step names and module-level headings set in prose." },
+      "body": { "displayName": "Body", "purpose": "Ledes and paragraphs. Measure held to 46-68ch." },
+      "readout": { "displayName": "Readout", "purpose": "Field labels, module heads, stage rails, head readouts. Mono with tabular figures, always." },
+      "slug": { "displayName": "Dispatch Slug", "purpose": "The transmission rail at the top of every page: date, mode, dimensions, sample rate." },
+      "lcd": { "displayName": "LCD Bitmap", "purpose": "Inside the console's 160x144 canvas only. 5x7 cells, 6px advance, 26 characters per line." }
+    },
+    "shadows": [
+      { "name": "lift-1", "value": "0 1px 0 rgba(255, 255, 255, 0.04), 0 2px 6px rgba(0, 0, 0, 0.30)", "purpose": "Small lifted objects at rest, such as file cards." },
+      { "name": "lift-2", "value": "0 1px 0 rgba(255, 255, 255, 0.05), 0 6px 14px -6px rgba(0, 0, 0, 0.45), 0 20px 44px -24px rgba(0, 0, 0, 0.70)", "purpose": "Panels, modules and dropdown menus." },
+      { "name": "inset-well", "value": "inset 0 1px 3px rgba(0, 0, 0, 0.55), inset 0 -1px 0 rgba(255, 255, 255, 0.03)", "purpose": "Every recessed surface: inputs, drop targets, switch tracks, canvas stages." },
+      { "name": "button-extrusion", "value": "inset 0 1px 0 rgba(255, 255, 255, 0.18), inset 0 -2px 0 #66202A, 0 3px 0 #66202A, 0 6px 14px -6px rgba(0, 0, 0, 0.7)", "purpose": "Primary controls. The solid plate is the button's thickness; press travels 3px." },
+      { "name": "button-extrusion-pressed", "value": "inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 2px 5px rgba(0, 0, 0, 0.4)", "purpose": "The bottomed-out state paired with translateY(3px)." },
+      { "name": "ghost-extrusion", "value": "inset 0 0 0 1px #33453A, 0 2px 0 #0F1814, 0 4px 10px -6px rgba(0, 0, 0, 0.6)", "purpose": "Ghost buttons. 2px plate, 2px travel." },
+      { "name": "shell-extrusion", "value": "inset 3px 3px 4px rgba(255, 255, 255, 0.85), inset -6px -4px 6px rgba(120, 116, 100, 0.42), inset 0 -1px 0 rgba(255, 255, 255, 0.5), 9px 13px 0 -3px #A8A292, 14px 19px 0 -6px #8E8878, 18px 28px 26px -12px rgba(0, 0, 0, 0.55), 34px 52px 74px -26px rgba(0, 0, 0, 0.75)", "purpose": "The console only. Two solid plates give the case its side wall; two soft casts put it on the desk." },
+      { "name": "screen-well", "value": "inset 0 0 0 3px #4A5240, inset 4px 5px 10px rgba(20, 40, 16, 0.42), 0 0 0 1px #8B8E7C", "purpose": "The LCD set into its bezel as a well, not a rectangle." },
+      { "name": "screen-glow", "value": "0 0 36px -6px rgba(168, 183, 138, 0.20)", "purpose": "Added to the screen well only when the console is powered on." },
+      { "name": "led-open", "value": "0 0 6px rgba(168, 183, 138, 0.75), inset 0 1px 1px rgba(255, 255, 255, 0.4)", "purpose": "A lit open/recovered state lamp." },
+      { "name": "led-locked", "value": "0 0 6px rgba(166, 59, 70, 0.8), inset 0 1px 1px rgba(255, 255, 255, 0.3)", "purpose": "A lit locked/alert state lamp." },
+      { "name": "focus-ring-lcd", "value": "inset 0 0 0 1px #4E6144, 0 0 0 3px rgba(168, 183, 138, 0.16)", "purpose": "Input focus: the stroke shifts to screen shade and a translucent LCD ring appears outside." }
+    ],
+    "motion": [
+      { "name": "ease", "value": "cubic-bezier(0.16, 0.84, 0.32, 1)", "purpose": "Default easing for state transitions on controls (0.09-0.2s)." },
+      { "name": "ease-out", "value": "cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Arrivals and reveals: the console's entrance, the nav underline, the paint-down." },
+      { "name": "console-arrive", "value": "console-arrive 0.85s var(--ease-out) both — from opacity 0 / translateY(22px) rotate(-3.4deg) to none", "purpose": "The only entrance animation in the system. Landing's console settling onto the desk." },
+      { "name": "paint-down", "value": "paint-down 1.05s var(--ease-out) both — clip-path inset(0 0 100% 0) to inset(0 0 0 0)", "purpose": "Receive's rebuilt picture resolving one slice at a time, the way the decoder works." },
+      { "name": "paint-line", "value": "paint-line 1.05s var(--ease-out) both — top 0 to 100%, fading at the end", "purpose": "The bright LCD-highlight line leading the paint-down reveal." },
+      { "name": "scope-sweep", "value": "scope-sweep 3.6s linear infinite — top -2px to 100%", "purpose": "The idle scope reading as a powered panel waiting for a file, not a blank card." },
+      { "name": "reduced-motion", "value": "@media (prefers-reduced-motion: reduce) — all animation/transition durations 0.01ms; .scope-empty::after and .recovered-frame::after removed outright", "purpose": "Motion is removed, not merely shortened." }
+    ],
+    "breakpoints": [
+      { "name": "hero-overlap", "value": "1180px" },
+      { "name": "module-stack", "value": "1080px" },
+      { "name": "hero-reorder", "value": "980px" },
+      { "name": "head-stack", "value": "900px" },
+      { "name": "tablet", "value": "700px" },
+      { "name": "mobile", "value": "620px" },
+      { "name": "slug-wrap", "value": "480px" },
+      { "name": "narrow", "value": "420px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one oxide-red control. Extruded with a solid plate and a soft cast; it physically travels 3px on press.",
+      "html": "<button class=\"ds-btn ds-btn-primary\">Send transmission</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; border: 0; border-radius: 4px; padding: 13px 24px; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; font-weight: 650; font-variation-settings: 'wdth' 92; letter-spacing: 0.02em; cursor: pointer; transition: transform 0.12s cubic-bezier(0.16,0.84,0.32,1), box-shadow 0.12s cubic-bezier(0.16,0.84,0.32,1), background-color 0.16s cubic-bezier(0.16,0.84,0.32,1); } .ds-btn-primary { background: linear-gradient(180deg, #A63B46, #8C2F39); color: #F4F1E7; box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -2px 0 #66202A, 0 3px 0 #66202A, 0 6px 14px -6px rgba(0,0,0,0.7); } .ds-btn-primary:hover { background: linear-gradient(180deg, #B34450, #A63B46); } .ds-btn-primary:active { transform: translateY(3px); box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), inset 0 2px 5px rgba(0,0,0,0.4); } .ds-btn-primary:focus-visible { outline: 2px solid #A8B78A; outline-offset: 3px; }"
+    },
+    {
+      "name": "Primary Button (disabled)",
+      "kind": "button",
+      "refersTo": "button-primary-disabled",
+      "description": "Oxide marks what can be pressed, so a disabled control gives the colour back rather than dimming and staying red.",
+      "html": "<button class=\"ds-btn-disabled\" disabled>Send transmission</button>",
+      "css": ".ds-btn-disabled { display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 4px; padding: 13px 24px; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; font-weight: 650; font-variation-settings: 'wdth' 92; letter-spacing: 0.02em; background: #2A3A2C; color: #869A82; box-shadow: inset 0 0 0 1px #223129; cursor: not-allowed; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "The secondary control. Panel fill, a hairline stroke, a 2px plate, 2px of travel.",
+      "html": "<button class=\"ds-btn ds-btn-ghost\">Receive</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 9px; border: 0; border-radius: 4px; padding: 13px 24px; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; font-weight: 650; font-variation-settings: 'wdth' 92; letter-spacing: 0.02em; cursor: pointer; background: #1B2620; color: #E4EADD; box-shadow: inset 0 0 0 1px #33453A, 0 2px 0 #0F1814, 0 4px 10px -6px rgba(0,0,0,0.6); transition: transform 0.12s cubic-bezier(0.16,0.84,0.32,1), box-shadow 0.12s cubic-bezier(0.16,0.84,0.32,1), background-color 0.16s cubic-bezier(0.16,0.84,0.32,1); } .ds-btn-ghost:hover { background: #2A3A2C; } .ds-btn-ghost:active { transform: translateY(2px); box-shadow: inset 0 0 0 1px #33453A, inset 0 2px 4px rgba(0,0,0,0.35); } .ds-btn-ghost:focus-visible { outline: 2px solid #A8B78A; outline-offset: 3px; }"
+    },
+    {
+      "name": "Field with Silkscreen Label",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A well cut into the panel, labelled with a mono silkscreen strip. Focus shifts the stroke to screen shade and adds a translucent LCD ring.",
+      "html": "<div class=\"ds-field\"><label class=\"ds-field-label\" for=\"ds-key\">Passphrase</label><input class=\"ds-input\" id=\"ds-key\" type=\"text\" placeholder=\"64-bit seed\" /></div>",
+      "css": ".ds-field { display: block; } .ds-field-label { display: block; font-family: 'Spline Sans Mono', ui-monospace, monospace; font-size: 0.75rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: #869A82; margin-bottom: 8px; } .ds-input { width: 100%; padding: 12px 14px; border: 0; border-radius: 4px; background: #0F1814; box-shadow: inset 0 1px 3px rgba(0,0,0,0.55), inset 0 -1px 0 rgba(255,255,255,0.03), inset 0 0 0 1px #223129; font-family: 'Spline Sans Mono', ui-monospace, monospace; font-size: 0.875rem; font-variant-numeric: tabular-nums; color: #E4EADD; transition: box-shadow 0.16s cubic-bezier(0.16,0.84,0.32,1); } .ds-input::placeholder { color: #869A82; } .ds-input:focus { outline: none; box-shadow: inset 0 1px 3px rgba(0,0,0,0.55), inset 0 -1px 0 rgba(255,255,255,0.03), inset 0 0 0 1px #4E6144, 0 0 0 3px rgba(168,183,138,0.16); }"
+    },
+    {
+      "name": "Bench Module",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "The shared container on the Operate surfaces: a silkscreen head, a body, and a foot rail, lifted off the room by Lift 2.",
+      "html": "<section class=\"ds-module\"><header class=\"ds-module-head\"><h2>Source image</h2><span class=\"ds-module-meta\">64 x 64</span></header><div class=\"ds-module-body\">Drop a picture here and it becomes a signal.</div><footer class=\"ds-module-foot\"><button class=\"ds-btn ds-btn-primary\">Encode</button></footer></section>",
+      "css": ".ds-module { display: flex; flex-direction: column; border-radius: 14px; background: #1B2620; color: #E4EADD; box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 0 rgba(255,255,255,0.05), 0 6px 14px -6px rgba(0,0,0,0.45), 0 20px 44px -24px rgba(0,0,0,0.70); font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; } .ds-module-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 15px 20px 14px; border-bottom: 1px solid #223129; } .ds-module-head h2 { margin: 0; font-family: 'Spline Sans Mono', ui-monospace, monospace; font-size: 0.75rem; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: #869A82; } .ds-module-meta { font-family: 'Spline Sans Mono', ui-monospace, monospace; font-size: 0.75rem; font-variant-numeric: tabular-nums; color: #A9B8A4; } .ds-module-body { padding: 20px; font-size: 1rem; line-height: 1.6; color: #A9B8A4; } .ds-module-foot { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px 20px; border-top: 1px solid #223129; }"
+    },
+    {
+      "name": "File Card",
+      "kind": "card",
+      "refersTo": "filecard",
+      "description": "A selectable transmission. Lift 1 at rest, Lift 2 and a 1px rise on hover, an LCD ring when selected; the state tag carries the open/locked vocabulary.",
+      "html": "<button class=\"ds-filecard is-on\"><span class=\"ds-filecard-icon\">WAV</span><span class=\"ds-filecard-body\"><b>transmission-04.wav</b><span>3.20 s &middot; 44.1 kHz</span></span><span class=\"ds-filecard-tag\">OPEN</span></button>",
+      "css": ".ds-filecard { display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px 16px; border: 0; border-radius: 8px; background: #1B2620; box-shadow: inset 0 0 0 1px #223129, 0 1px 0 rgba(255,255,255,0.04), 0 2px 6px rgba(0,0,0,0.30); text-align: left; cursor: pointer; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; transition: box-shadow 0.18s cubic-bezier(0.16,0.84,0.32,1), transform 0.12s cubic-bezier(0.16,0.84,0.32,1); } .ds-filecard:hover { transform: translateY(-1px); box-shadow: inset 0 0 0 1px #33453A, 0 6px 14px -6px rgba(0,0,0,0.45), 0 20px 44px -24px rgba(0,0,0,0.70); } .ds-filecard.is-on { box-shadow: inset 0 0 0 1px #4E6144, 0 0 0 3px rgba(168,183,138,0.12), 0 2px 6px rgba(0,0,0,0.30); } .ds-filecard:focus-visible { outline: 2px solid #A8B78A; outline-offset: 3px; } .ds-filecard-icon { flex: none; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 4px; background: #0F1814; box-shadow: inset 0 1px 3px rgba(0,0,0,0.55); font-family: 'Spline Sans Mono', ui-monospace, monospace; font-size: 0.625rem; letter-spacing: 0.08em; color: #A8B78A; } .ds-filecard-body { flex: 1; min-width: 0; } .ds-filecard-body b { display: block; font-size: 0.875rem; font-weight: 600; color: #E4EADD; } .ds-filecard-body span { display: block; margin-top: 2px; font-size: 0.75rem; color: #869A82; } .ds-filecard-tag { flex: none; padding: 5px 10px; border-radius: 3px; background: rgba(126,145,102,0.16); font-family: 'Spline Sans Mono', ui-monospace, monospace; font-size: 0.6875rem; letter-spacing: 0.06em; color: #A8B78A; }"
+    },
+    {
+      "name": "Stage Rail with LEDs",
+      "kind": "custom",
+      "refersTo": "led",
+      "description": "The site's single state vocabulary: a 7px lamp per step, unlit / done / current, on a hairline-divided mono rail.",
+      "html": "<ol class=\"ds-stagerail\"><li class=\"is-done\"><i class=\"ds-led ds-led-done\"></i>File</li><li class=\"is-now\"><i class=\"ds-led ds-led-open\"></i>Inspect</li><li><i class=\"ds-led\"></i>Key</li><li><i class=\"ds-led\"></i>Rebuilt</li></ol>",
+      "css": ".ds-stagerail { display: flex; align-items: center; flex-wrap: wrap; margin: 0; padding: 14px 0; list-style: none; border-top: 1px solid #223129; border-bottom: 1px solid #223129; } .ds-stagerail li { display: flex; align-items: center; gap: 9px; padding-right: 22px; margin-right: 22px; font-family: 'Spline Sans Mono', ui-monospace, monospace; font-size: 0.75rem; letter-spacing: 0.07em; text-transform: uppercase; color: #869A82; border-right: 1px solid #223129; } .ds-stagerail li:last-child { border-right: 0; margin-right: 0; padding-right: 0; } .ds-stagerail li.is-done { color: #A9B8A4; } .ds-stagerail li.is-now { color: #A8B78A; } .ds-led { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #2A3A2C; box-shadow: inset 0 1px 1px rgba(0,0,0,0.6); } .ds-led-done { background: #4E6144; box-shadow: none; } .ds-led-open { background: #A8B78A; box-shadow: 0 0 6px rgba(168,183,138,0.75), inset 0 1px 1px rgba(255,255,255,0.4); } .ds-led-locked { background: #A63B46; box-shadow: 0 0 6px rgba(166,59,70,0.8), inset 0 1px 1px rgba(255,255,255,0.3); }"
+    },
+    {
+      "name": "Top Rail Navigation",
+      "kind": "nav",
+      "refersTo": "nav",
+      "description": "The desk's top rail: a translucent void ground, a hairline underline, a bar-lane maker's mark, and an underline that scales from the centre rather than growing in width.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-brand\" href=\"#\"><span class=\"ds-nav-bars\"><i style=\"height:6px\"></i><i style=\"height:12px\"></i><i style=\"height:18px\"></i><i style=\"height:9px\"></i><i style=\"height:15px\"></i><i style=\"height:7px\"></i><i style=\"height:13px\"></i><i style=\"height:20px\"></i></span>Spectral Canvas</a><span class=\"ds-nav-links\"><a class=\"ds-nav-link active\" href=\"#\">Send</a><a class=\"ds-nav-link\" href=\"#\">Receive</a></span></nav>",
+      "css": ".ds-nav { display: flex; align-items: center; justify-content: space-between; gap: 24px; height: 62px; padding: 0 28px; background: rgba(12,19,16,0.86); backdrop-filter: blur(14px) saturate(1.2); box-shadow: 0 1px 0 #223129; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; } .ds-nav-brand { display: inline-flex; align-items: center; gap: 11px; font-size: 0.9375rem; font-weight: 700; font-variation-settings: 'wdth' 88; color: #E4EADD; text-decoration: none; } .ds-nav-bars { display: flex; align-items: flex-end; gap: 2px; height: 20px; } .ds-nav-bars i { width: 2px; border-radius: 1px; background: #7F9166; transition: background 0.25s cubic-bezier(0.16,0.84,0.32,1); } .ds-nav-brand:hover .ds-nav-bars i { background: #A8B78A; } .ds-nav-links { display: flex; align-items: center; gap: 4px; } .ds-nav-link { position: relative; padding: 9px 14px; font-size: 0.875rem; font-weight: 550; color: #A9B8A4; text-decoration: none; transition: color 0.18s cubic-bezier(0.16,0.84,0.32,1); } .ds-nav-link:hover, .ds-nav-link.active { color: #E4EADD; } .ds-nav-link::after { content: ''; position: absolute; left: 14px; right: 14px; bottom: 4px; height: 1px; background: #A8B78A; transform: scaleX(0); transition: transform 0.26s cubic-bezier(0.22,1,0.36,1); } .ds-nav-link:hover::after, .ds-nav-link.active::after { transform: scaleX(1); } .ds-nav-link:focus-visible { outline: 2px solid #A8B78A; outline-offset: 3px; border-radius: 2px; }"
+    },
+    {
+      "name": "Dispatch Slug",
+      "kind": "custom",
+      "refersTo": "slug",
+      "description": "The rail every page opens with: real transmission data in tabular mono on a hairline, with a flexible spacer pushing the anchor to the right edge.",
+      "html": "<p class=\"ds-slug\"><span>2026-09-12</span><span>MODE / SEND</span><span>64 &times; 64</span><span class=\"ds-slug-sep\"></span><b>44 100 Hz</b></p>",
+      "css": ".ds-slug { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margin: 0; font-family: 'Spline Sans Mono', ui-monospace, monospace; font-size: 0.6875rem; font-variant-numeric: tabular-nums; letter-spacing: 0.06em; text-transform: uppercase; color: #869A82; padding: 14px 0 12px; border-bottom: 1px solid #223129; } .ds-slug b { color: #A9B8A4; font-weight: 500; } .ds-slug-sep { flex: 1; }"
+    },
+    {
+      "name": "Drop Target",
+      "kind": "custom",
+      "refersTo": "drop",
+      "description": "A deep well the user drops a file into. Drag-over thickens the stroke to the signal tone and adds a translucent LCD ring.",
+      "html": "<div class=\"ds-drop\"><span class=\"ds-drop-title\">Drop a picture</span><span class=\"ds-drop-hint\">PNG or JPEG. It is resized to 64 &times; 64 before encoding.</span><button class=\"ds-btn ds-btn-ghost\">Choose a file</button></div>",
+      "css": ".ds-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 13px; min-height: 320px; padding: 34px 26px; border-radius: 8px; background: #0F1814; box-shadow: inset 0 1px 3px rgba(0,0,0,0.55), inset 0 -1px 0 rgba(255,255,255,0.03), inset 0 0 0 1px #33453A; text-align: center; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; transition: box-shadow 0.2s cubic-bezier(0.16,0.84,0.32,1); } .ds-drop:hover { box-shadow: inset 0 1px 3px rgba(0,0,0,0.55), inset 0 0 0 2px #7F9166, 0 0 0 4px rgba(168,183,138,0.13); } .ds-drop-title { font-size: 1.0625rem; font-weight: 650; color: #E4EADD; } .ds-drop-hint { max-width: 40ch; font-size: 0.875rem; line-height: 1.55; color: #869A82; }"
+    },
+    {
+      "name": "Idle Scope",
+      "kind": "custom",
+      "refersTo": "panel",
+      "description": "A powered panel waiting for a file, not a blank card: LCD-ink ground, the console's dot matrix, and a sweeping scanline.",
+      "html": "<div class=\"ds-scope-empty\">Waiting for a transmission</div>",
+      "css": ".ds-scope-empty { position: relative; display: grid; place-items: center; min-height: 220px; padding: 24px; overflow: hidden; border-radius: 8px; background: #23301F; box-shadow: inset 0 0 0 3px #2E3A28, inset 4px 5px 12px rgba(0,0,0,0.6); font-family: 'Spline Sans Mono', ui-monospace, monospace; font-size: 0.875rem; letter-spacing: 0.04em; text-align: center; color: #A8B78A; } .ds-scope-empty::before { content: ''; position: absolute; inset: 0; opacity: 0.5; background-image: repeating-linear-gradient(0deg, transparent 0 3px, rgba(10,18,8,0.55) 3px 4px), repeating-linear-gradient(90deg, transparent 0 3px, rgba(10,18,8,0.4) 3px 4px); } .ds-scope-empty::after { content: ''; position: absolute; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, #7F9166, transparent); opacity: 0.55; animation: ds-scope-sweep 3.6s linear infinite; } @keyframes ds-scope-sweep { from { top: -2px; } to { top: 100%; } } @media (prefers-reduced-motion: reduce) { .ds-scope-empty::after { display: none; } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Wire Desk",
+    "overview": "A wirephoto press-transmission desk in a dark green room, lit from one side, with a bone-ivory handheld console sitting on it. Everything that is not the console is the room: recessed panels, hairline rules, tabular figures, silkscreen labels. The console's four-tone olive screen is the brightest surface on the site, and every other element is calibrated so it stays that way. The world is physical rather than graphic — things are wells cut into panels, plates extruded from a single upper-left light, and buttons that actually travel down when pressed.\n\nThe register is instrumentation, not consumer software. Every number is a measurement and is set in tabular mono; every heading is condensed news type; every state is said by a lit dot rather than a coloured pill. Density is high on the operating surfaces (Send, Receive) and asymmetric on Landing, where the claim reads down the left and the object sits over the right edge of the log the way a device sits on paper.\n\nThe world declines the category's default arrangement: no centred gradient headline, no animated neon waveform hero, no glass feature cards. It equally declines the warm-cream-and-serif opposite. Ground is dark green, and it stays dark.",
+    "keyCharacteristics": [
+      "One light source, upper left, and all depth obeys it",
+      "Oxide red exclusively on pressable things",
+      "Every readout in tabular mono; every measurement right-aligned",
+      "A four-tone LCD ramp treated as a closed material",
+      "Hairline rules and dispatch slugs instead of cards and containers",
+      "Wells are recessed, panels are lifted, and borders never fake either"
+    ],
+    "rules": [
+      { "name": "The Pressable Red Rule", "body": "Oxide is worn only by things that can be pressed. A disabled primary control gives the colour back — it becomes a raised neutral plate with a hairline inset — rather than staying red and dimming.", "section": "colors" },
+      { "name": "The Closed Ramp Rule", "body": "Inside the LCD panel, only the four ramp tones exist. No fifth tone, no antialiased intermediate, no webfont. Everything drawn there is drawn at 160x144 and rendered image-rendering: pixelated.", "section": "colors" },
+      { "name": "The Colour-Means-State Rule", "body": "Colour states are inherited and fixed: signal is #7F9166, open/recovered is #A8B78A, locked/peak/alert is #8C2F39. Learned once, they hold on the log, the file cards, the stage rails and the console's battery lamp.", "section": "colors" },
+      { "name": "The Measurement Rule", "body": "Anything that is a number, a filename, a rate, a dimension or a code is set in Spline Sans Mono with tabular figures and right-aligned in its column. Anything that is a sentence is set in Archivo.", "section": "typography" },
+      { "name": "The Three Registers Rule", "body": "Each face has one territory and never crosses: Archivo for display and UI, Spline Sans Mono for readouts, the bitmap face inside the LCD canvas. The site footer's slogan is prose and therefore gives the mono face back.", "section": "typography" },
+      { "name": "The Width Axis Rule", "body": "Display type is condensed on the variable axis ('wdth' 84-92), never faked with transform: scaleX() or a separate condensed family. Body sits at 100.", "section": "typography" },
+      { "name": "The Rail Rule", "body": "The dispatch slug and the head readout both depend on a left run and a right anchor. When the row wraps, the anchor takes its own line rather than colliding with the tail of the run.", "section": "layout" },
+      { "name": "The One Light Rule", "body": "Every shadow falls down and to the right of a single upper-left source. No element carries a shadow that contradicts it, and no element uses a border to imply a raise.", "section": "elevation" },
+      { "name": "The Real Travel Rule", "body": "A pressed control moves. The press state translates by the exact height of its extrusion plate and replaces the outer stack with an inset one, so the button appears to bottom out.", "section": "elevation" },
+      { "name": "The Singular Corner Rule", "body": "The swept 94px corner belongs to the console. Nothing else in the system may borrow it.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do put every number, filename, rate and dimension in Spline Sans Mono with tabular figures, right-aligned in its column.",
+      "Do condense display type on Archivo's variable width axis ('wdth' 84-92) and leave body at 100.",
+      "Do build depth from a stacked shadow consistent with one upper-left light: an inset highlight on the lit edge, an inset shade on the shadowed one, and a soft cast below.",
+      "Do recess anything a user types or draws into (well tone plus Inset Well) and lift anything that groups content (panel tone plus Lift 2).",
+      "Do say state with the .led dot and the inherited state colours — signal, open, locked — everywhere state appears.",
+      "Do make a press physically travel: translate by the plate height and swap to an inset stack.",
+      "Do open every page with the dispatch slug on its hairline, carrying real transmission data.",
+      "Do keep the LCD canvas to its four tones and its bitmap face, rendered pixelated at 160x144.",
+      "Do give an outline back on focus — 2px solid #A8B78A at 3px offset — on every interactive element.",
+      "Do honour prefers-reduced-motion: the sweep and the paint-line are removed outright, not merely shortened."
+    ],
+    "donts": [
+      "Don't use oxide red on anything that cannot be pressed — not a heading, a rule, a border, a badge, or an icon that is not a control.",
+      "Don't keep a disabled control red. It gives the colour back.",
+      "Don't use a border to imply elevation. Strokes are inset 0 0 0 1px; lift comes from shadow.",
+      "Don't ship a solid zero-blur offset shadow on its own. A hard plate is the body of an extrusion and must sit in a stack with a soft cast; a bare block shadow is not this world's device.",
+      "Don't introduce a fifth tone, an antialiased webfont, or a high-resolution graphic inside the LCD panel.",
+      "Don't reuse the 23px 23px 94px 23px swept corner on anything but the console.",
+      "Don't set a measurement in Archivo or a sentence in the mono face.",
+      "Don't add scroll-triggered fade-ups. Entrance motion is limited to the console's arrival on Landing; after that, motion answers an action — Receive's paint-down reveal with its leading line, and the idle scope's sweep.",
+      "Don't animate width, height or layout properties for state feedback; use transform and opacity (the nav underline scales, it does not grow).",
+      "Don't let expression obscure task, state or affordance on Send and Receive — the module language carries the world there, not decoration.",
+      "Don't change the import order on Receive: Simulate.css first, then Receive.css. .module, .drop, .filecard, .lockfields and .switch are defined in the former and shared."
+    ]
+  }
+}

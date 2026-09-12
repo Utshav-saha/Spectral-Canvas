@@ -2,8 +2,10 @@ import { useState, useRef, useEffect } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import './NavBar.css'
 
-/* Text-only nav. The underline grows from the centre on hover, which is the
-   only motion in the header - links are the one thing here you act on. */
+/* Text-only rail. The mark is eight lanes because the product is eight
+   frequency lanes; it is the structure, not an ornament. */
+
+const LANES = [7, 13, 9, 17, 11, 20, 8, 14]
 
 export default function NavBar() {
   const [open, setOpen] = useState(false)
@@ -11,9 +13,16 @@ export default function NavBar() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    const close = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
+    const close = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false)
+    }
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false) }
     document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
+    document.addEventListener('keydown', esc)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', esc)
+    }
   }, [])
 
   const go = (mode) => { setOpen(false); navigate(`/simulate?mode=${mode}`) }
@@ -23,40 +32,45 @@ export default function NavBar() {
       <div className="shell nav-inner">
         <Link to="/" className="nav-brand">
           <span className="nav-bars" aria-hidden="true">
-            {[9, 17, 13, 21, 11].map((h, i) => <i key={i} style={{ height: `${h}px` }} />)}
+            {LANES.map((h, i) => <i key={i} style={{ height: `${h}px` }} />)}
           </span>
-          Spectral Canvas
+          <span>Spectral Canvas</span>
         </Link>
 
         <nav className="nav-links" aria-label="Main">
           <div
-            className="nav-drop" ref={wrapRef}
+            className="nav-drop"
+            ref={wrapRef}
             onMouseEnter={() => setOpen(true)}
             onMouseLeave={() => setOpen(false)}
           >
             <button
-              type="button" className="nav-link"
-              aria-expanded={open} aria-haspopup="menu"
+              type="button"
+              className="nav-link"
+              aria-expanded={open}
+              aria-haspopup="menu"
               onClick={() => setOpen((o) => !o)}
             >
-              Simulation
+              Send
             </button>
 
             <div className={`nav-menu ${open ? 'is-open' : ''}`} role="menu">
               <button role="menuitem" type="button" onClick={() => go('image')}>
-                <b>Send an image</b><span>Photo, logo or any picture file</span>
+                <b>Send an image</b><span>A photo, a logo, any picture file</span>
               </button>
               <button role="menuitem" type="button" onClick={() => go('text')}>
-                <b>Send text</b><span>Type it or upload a .txt</span>
+                <b>Send text</b><span>Type it, or upload a .txt</span>
               </button>
               <button role="menuitem" type="button" onClick={() => go('doodle')}>
-                <b>Live doodle</b><span>Draw it yourself on the canvas</span>
+                <b>Draw it live</b><span>Paint straight onto the canvas</span>
               </button>
             </div>
           </div>
 
-          <NavLink to="/receive" className="nav-link">Receive</NavLink>
-          <a className="nav-link" href="#how">How it works</a>
+          <NavLink to="/receive" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+            Receive
+          </NavLink>
+          <a className="nav-link" href="/#how">How it works</a>
         </nav>
       </div>
     </header>

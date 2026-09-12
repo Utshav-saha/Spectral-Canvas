@@ -1,59 +1,298 @@
+/* ==========================================================================
+   Global surface. The room, the wire-desk furniture, and the physical
+   component language every page shares.
+   ========================================================================== */
+
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; }
+html { scroll-behavior: smooth; }
 
 body {
   margin: 0;
-  background: var(--paper);
+  background: var(--void);
   color: var(--ink);
   font-family: var(--display);
   font-size: var(--t-body);
-  line-height: 1.55;
+  font-variation-settings: 'wdth' 100;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
+/* One light source, upper left, plus the faint spill the screen throws into
+   the room. Not decoration: it is the reason the shell reads as an object. */
 body::before {
   content: '';
-  position: fixed; inset: 0;
+  position: fixed;
+  inset: 0;
   background:
-    radial-gradient(1100px 560px at 78% 8%, rgba(75,63,207,.07), transparent 62%),
-    radial-gradient(760px 420px at 8% 96%, rgba(14,156,156,.07), transparent 60%);
-  pointer-events: none; z-index: 0;
+    radial-gradient(1200px 700px at 12% -8%, rgba(168, 183, 138, 0.055), transparent 64%),
+    radial-gradient(900px 620px at 82% 34%, rgba(168, 183, 138, 0.035), transparent 60%);
+  pointer-events: none;
+  z-index: 0;
 }
 
-h1, h2, h3, p, figure { margin: 0; }
-button { font: inherit; color: inherit; }
-a { color: inherit; }
+h1, h2, h3, h4, p, figure, dl, dd, ol, ul { margin: 0; }
+ol, ul { padding: 0; list-style: none; }
+button { font: inherit; color: inherit; background: none; border: 0; }
+a { color: inherit; text-decoration: none; }
+img, canvas, svg { display: block; max-width: 100%; }
 
-:focus-visible { outline: 2.5px solid var(--indigo); outline-offset: 3px; border-radius: 4px; }
+/* --------------------------------------------------------------------------
+   Browser surfaces. These ship with defaults that belong to no design system.
+   -------------------------------------------------------------------------- */
+::selection { background: var(--lcd-2); color: var(--lcd-0); }
+:root { accent-color: var(--oxide); caret-color: var(--lcd-0); color-scheme: dark; }
 
-.shell { position: relative; z-index: 1; max-width: 1240px; margin: 0 auto; padding: 0 28px; }
-.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.muted { color: var(--slate); }
+:focus-visible {
+  outline: 2px solid var(--lcd-0);
+  outline-offset: 3px;
+  border-radius: var(--r-xs);
+}
 
+* { scrollbar-width: thin; scrollbar-color: var(--raised) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--well); }
+::-webkit-scrollbar-thumb {
+  background: var(--raised);
+  border: 2px solid var(--well);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--line); }
+
+a:not(.btn):not(.nav-link):hover { text-underline-offset: 4px; text-decoration: underline; text-decoration-thickness: 1px; }
+
+/* --------------------------------------------------------------------------
+   Layout + wire-desk furniture
+   -------------------------------------------------------------------------- */
+.shell {
+  position: relative;
+  z-index: 1;
+  max-width: var(--shell-w);
+  margin: 0 auto;
+  padding-inline: 28px;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+.muted { color: var(--ink-2); }
+
+/* The dispatch slug. Every page opens with one: real transmission data on a
+   hairline rule. It is page furniture carrying measurements, never a label
+   sitting above a heading. */
+.slug {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-family: var(--mono);
+  font-size: var(--t-slug);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding-block: 14px 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.slug b { color: var(--ink-2); font-weight: 500; }
+.slug .slug-sep { flex: 1; }
+
+@media (max-width: 700px) {
+  .slug { gap: 6px 14px; }
+  .slug .slug-sep { display: none; }
+}
+/* The rail depends on a left run and a right anchor. Once the row wraps, the
+   anchor takes its own line rather than colliding into the tail of the run. */
+@media (max-width: 480px) {
+  .slug { gap: 5px 12px; }
+  .slug .slug-sep { display: block; flex-basis: 100%; height: 0; }
+  .slug b { flex-basis: 100%; }
+}
+
+/* Section titles. The wire desk rules its headings. */
+.rule-head {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 34px;
+}
+.rule-head::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line-soft);
+}
+.rule-head h2 {
+  font-size: var(--t-h2);
+  font-weight: 700;
+  font-variation-settings: 'wdth' 88;
+  letter-spacing: -0.022em;
+  line-height: 1.05;
+  text-wrap: balance;
+}
+
+/* --------------------------------------------------------------------------
+   Controls. Physical: pressed things move, and only pressable things are red.
+   -------------------------------------------------------------------------- */
 .btn {
-  border: 1px solid transparent; border-radius: var(--r-md);
-  padding: 13px 22px; font-weight: 600; font-size: var(--t-sm); cursor: pointer;
-  transition: transform .16s var(--ease), box-shadow .16s var(--ease), background .16s var(--ease);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border-radius: var(--r-sm);
+  padding: 13px 24px;
+  font-family: var(--display);
+  font-size: var(--t-sm);
+  font-weight: 650;
+  font-variation-settings: 'wdth' 92;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform 0.12s var(--ease), box-shadow 0.12s var(--ease),
+              background-color 0.16s var(--ease), border-color 0.16s var(--ease);
 }
-.btn:active:not(:disabled) { transform: translateY(1px); }
-.btn:disabled { opacity: .45; cursor: not-allowed; }
+/* Oxide marks what can be pressed. A disabled control cannot be, so it gives
+   the colour back rather than dimming it and staying red. */
+.btn:disabled { cursor: not-allowed; }
+.btn-primary:disabled {
+  background: var(--raised);
+  color: var(--ink-3);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
+.btn-ghost:disabled { opacity: 0.45; }
 
-.btn-primary { background: var(--indigo); color: #fff; box-shadow: 0 8px 20px -10px rgba(75,63,207,.9); }
-.btn-primary:hover:not(:disabled) { background: #3F34B8; }
-.btn-ghost { background: transparent; border-color: var(--line); }
-.btn-ghost:hover:not(:disabled) { background: var(--surface); border-color: var(--indigo); }
-.btn-aqua { background: var(--aqua); color: #fff; box-shadow: 0 8px 20px -10px rgba(14,156,156,.9); }
-.btn-aqua:hover:not(:disabled) { background: #0B8686; }
+.btn-primary {
+  background: linear-gradient(180deg, var(--oxide-hi), var(--oxide));
+  color: var(--bone-hi);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -2px 0 var(--oxide-lo),
+    0 3px 0 var(--oxide-lo),
+    0 6px 14px -6px rgba(0, 0, 0, 0.7);
+}
+.btn-primary:hover:not(:disabled) { background: linear-gradient(180deg, #B34450, var(--oxide-hi)); }
+.btn-primary:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 2px 5px rgba(0, 0, 0, 0.4);
+}
 
-.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-panel); }
-.field-label { display: block; font-size: var(--t-xs); font-weight: 600; color: var(--slate); margin-bottom: 7px; }
+.btn-ghost {
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line), 0 2px 0 var(--well), 0 4px 10px -6px rgba(0, 0, 0, 0.6);
+}
+.btn-ghost:hover:not(:disabled) { background: var(--raised); }
+.btn-ghost:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: inset 0 0 0 1px var(--line), inset 0 2px 4px rgba(0, 0, 0, 0.35);
+}
+
+/* --------------------------------------------------------------------------
+   Panels and wells
+   -------------------------------------------------------------------------- */
+.panel {
+  position: relative;
+  background: var(--panel);
+  border-radius: var(--r-lg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045), var(--lift-2);
+}
+
+.field-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 8px;
+}
 
 .input {
-  width: 100%; padding: 11px 13px; border: 1px solid var(--line); border-radius: var(--r-sm);
-  background: var(--paper-deep); font-family: var(--mono); font-size: var(--t-sm); color: var(--ink);
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--well);
+  box-shadow: var(--inset-well), inset 0 0 0 1px var(--line-soft);
+  font-family: var(--mono);
+  font-size: var(--t-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  transition: box-shadow 0.16s var(--ease);
 }
-.input:focus { outline: none; border-color: var(--indigo); background: var(--surface); }
+.input::placeholder { color: var(--ink-3); }
+.input:focus {
+  outline: none;
+  box-shadow: var(--inset-well), inset 0 0 0 1px var(--lcd-2), 0 0 0 3px rgba(168, 183, 138, 0.16);
+}
 
-.alert { border-radius: var(--r-md); padding: 12px 15px; font-size: var(--t-sm); border: 1px solid; }
-.alert-error { background: var(--coral-soft); border-color: #F3B39C; color: #8E3116; }
-.alert-ok    { background: var(--aqua-soft); border-color: #9BD6D3; color: #0A6B6B; }
+select.input {
+  appearance: none;
+  padding-right: 38px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+                    linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+  background-position: calc(100% - 19px) calc(50% + 1px), calc(100% - 14px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* --------------------------------------------------------------------------
+   Status. Errors name the problem; the LED says the state at a glance.
+   -------------------------------------------------------------------------- */
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  border-radius: var(--r-sm);
+  padding: 12px 15px;
+  font-size: var(--t-sm);
+  line-height: 1.5;
+}
+.alert::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 7px;
+  border-radius: 50%;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.4);
+}
+.alert-error {
+  background: rgba(140, 47, 57, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(166, 59, 70, 0.45);
+  color: #EFC3C4;
+}
+.alert-error::before { background: var(--oxide-hi); box-shadow: 0 0 7px rgba(166, 59, 70, 0.8); }
+.alert-ok {
+  background: rgba(126, 145, 102, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(126, 145, 102, 0.4);
+  color: var(--lcd-0);
+}
+.alert-ok::before { background: var(--lcd-0); box-shadow: 0 0 7px rgba(168, 183, 138, 0.7); }
+
+/* The LED dot. One vocabulary for state everywhere on the site. */
+.led {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--raised);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.6);
+  vertical-align: 1px;
+}
+.led.is-open { background: var(--open); box-shadow: 0 0 6px rgba(168, 183, 138, 0.75), inset 0 1px 1px rgba(255, 255, 255, 0.4); }
+.led.is-locked { background: var(--oxide-hi); box-shadow: 0 0 6px rgba(166, 59, 70, 0.8), inset 0 1px 1px rgba(255, 255, 255, 0.3); }
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

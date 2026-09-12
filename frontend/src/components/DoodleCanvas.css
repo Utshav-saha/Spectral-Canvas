@@ -1,60 +1,115 @@
-.doodle { display: flex; flex-direction: column; gap: 12px; }
+/* ==========================================================================
+   The paint surface. The tool rail is a bench strip; the canvas is a lit
+   sheet clamped into a dark well, because the white ground is the one bright
+   thing in this module and it should read that way.
+   ========================================================================== */
+
+.doodle { display: flex; flex-direction: column; gap: 14px; }
 
 .doodle-bar {
-  display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center;
-  padding: 10px 12px;
-  background: var(--paper-deep);
-  border: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  align-items: center;
+  padding: 11px 13px;
   border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: var(--inset-well), inset 0 0 0 1px var(--line-soft);
 }
-.doodle-group { display: flex; align-items: center; gap: 5px; }
+.doodle-group { display: flex; align-items: center; gap: 6px; }
 
 .doodle-tool {
-  border: 1px solid var(--line); background: var(--surface);
-  border-radius: var(--r-sm); padding: 6px 11px;
-  font-size: var(--t-xs); font-weight: 500; cursor: pointer;
-  transition: background .14s var(--ease), color .14s var(--ease), border-color .14s var(--ease);
+  padding: 7px 12px;
+  border-radius: var(--r-sm);
+  background: var(--raised);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.4);
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background 0.14s var(--ease), color 0.14s var(--ease), box-shadow 0.14s var(--ease), transform 0.1s var(--ease);
 }
-.doodle-tool:hover { border-color: var(--indigo); }
-.doodle-tool.is-on { background: var(--indigo); color: #fff; border-color: var(--indigo); }
+.doodle-tool:hover { color: var(--ink); background: #33452F; }
+.doodle-tool:active { transform: translateY(1px); }
+.doodle-tool.is-on {
+  background: var(--lcd-2);
+  color: var(--lcd-0);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), inset 0 0 0 1px var(--lcd-1);
+}
 
 .doodle-swatch {
-  width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
-  border: 2px solid transparent;
-  box-shadow: inset 0 0 0 1px rgba(20,24,47,.18);
-  transition: transform .14s var(--ease);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.5);
+  transition: transform 0.14s var(--ease), box-shadow 0.14s var(--ease);
 }
-.doodle-swatch:hover { transform: scale(1.14); }
-.doodle-swatch.is-on { border-color: var(--ink); transform: scale(1.14); }
+.doodle-swatch:hover { transform: scale(1.16); }
+.doodle-swatch.is-on {
+  transform: scale(1.16);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45), 0 0 0 2px var(--lcd-0);
+}
 
 .doodle-picker {
-  width: 26px; height: 24px; padding: 0; border: 1px solid var(--line);
-  border-radius: var(--r-sm); background: none; cursor: pointer;
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line);
+  cursor: pointer;
 }
 
-.doodle-weight { gap: 9px; }
-.doodle-weight span { font-size: var(--t-xs); color: var(--slate); width: 3.2em; }
-.doodle-weight input { width: 96px; accent-color: var(--indigo); cursor: pointer; }
+.doodle-weight { gap: 10px; }
+.doodle-weight span {
+  width: 3.4em;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+.doodle-weight input { width: 96px; accent-color: var(--lcd-1); cursor: pointer; }
 
 .doodle-check {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: var(--t-xs); color: var(--slate); cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  cursor: pointer;
 }
-.doodle-check input { accent-color: var(--indigo); cursor: pointer; }
+.doodle-check input { accent-color: var(--lcd-1); cursor: pointer; }
 
 .doodle-stage {
-  background: var(--paper-deep);
-  border: 1px solid var(--line);
+  padding: 11px;
   border-radius: var(--r-md);
-  padding: 10px;
+  background: var(--well);
+  box-shadow: var(--inset-well), inset 0 0 0 1px var(--line-soft);
 }
 .doodle-canvas {
-  width: 100%; display: block;
-  background: #fff; border-radius: var(--r-sm);
-  box-shadow: 0 1px 3px rgba(20,24,47,.14);
-  cursor: crosshair; touch-action: none;
+  display: block;
+  width: 100%;
+  border-radius: var(--r-sm);
+  background: #FFFFFF;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 6px 20px -8px rgba(0, 0, 0, 0.85);
+  cursor: crosshair;
+  touch-action: none;
 }
 
-.doodle-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.doodle-note { font-size: var(--t-xs); color: var(--slate); }
-.doodle-note b { color: var(--aqua); font-weight: 500; }
+.doodle-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.doodle-note { font-size: var(--t-xs); color: var(--ink-3); }
+.doodle-note b { color: var(--lcd-0); font-weight: 500; }
+
+@media (max-width: 620px) {
+  .doodle-bar { gap: 8px 12px; padding: 10px; }
+  .doodle-weight input { width: 72px; }
+}

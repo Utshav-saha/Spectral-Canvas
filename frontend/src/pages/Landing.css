@@ -1,78 +1,255 @@
-.landing { padding-bottom: 110px; }
+/* ==========================================================================
+   Landing. Asymmetric: the claim reads down the left, the object sits on the
+   right the way it would sit on a desk you could reach over and pick up.
+   ========================================================================== */
 
-/* asymmetric split - the instrument is not a centred hero image, it sits on
-   the right like something on a desk you can reach over and touch */
+.landing { position: relative; z-index: 1; }
+
+/* Twelve columns so the two areas can genuinely overlap: the copy runs 1-7,
+   the console 7-13, and they share column 7. Two adjacent columns would make
+   the console an illustration sitting in a layout. */
 .hero {
   display: grid;
-  grid-template-columns: 1.06fr .94fr;
-  gap: 70px; align-items: center;
-  padding-top: 64px; padding-bottom: 76px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 0 20px;
+  align-items: start;
+  padding-block: 72px 96px;
 }
 
-.hero-kicker { font-size: var(--t-sm); color: var(--slate); margin-bottom: 22px; }
+.hero-copy { grid-column: 1 / 8; grid-row: 1; padding-top: 12px; }
 
 .hero-title {
   font-size: var(--t-hero);
   font-weight: 800;
-  line-height: .96;
-  letter-spacing: -.038em;
-  margin-bottom: 24px;
+  font-variation-settings: 'wdth' 84;
+  line-height: 0.94;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
 }
-.hero-line { display: block; color: var(--indigo); }
 
 .hero-lede {
-  font-size: 1.06rem; color: var(--slate);
-  max-width: 46ch; line-height: 1.65; margin-bottom: 32px;
+  max-width: 46ch;
+  margin-top: 26px;
+  font-size: 1.0625rem;
+  line-height: 1.62;
+  color: var(--ink-2);
 }
 
-.hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 46px; }
-.hero-actions .btn { text-decoration: none; display: inline-block; }
-
-.hero-facts {
-  display: flex; flex-wrap: wrap; gap: 34px;
-  padding-top: 26px; border-top: 1px solid var(--line);
-  margin: 0;
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 34px;
 }
-.hero-facts div { display: flex; flex-direction: column; gap: 2px; }
-.hero-facts dt { font-size: 1.42rem; font-weight: 700; color: var(--ink); }
-.hero-facts dd { margin: 0; font-size: var(--t-xs); color: var(--slate); max-width: 17ch; line-height: 1.45; }
 
-.hero-bench { display: flex; justify-content: center; }
+/* --------------------------------------------------------------------------
+   The log. Wire-service furniture: hairline rules, tabular figures right
+   aligned, an LED per row saying open or locked in the site's one state
+   vocabulary. No card, no container, no border box.
+   -------------------------------------------------------------------------- */
+/* The log is the paper the console is resting on. Its hairlines run the full
+   width and pass beneath the shell, but every readable cell stops short of it,
+   so the object sits on the page without ever covering a figure. */
+.wirelog { margin-top: 52px; max-width: 660px; }
+.wirelog figcaption,
+.wirelog th:last-child,
+.wirelog td:last-child { padding-right: 104px; }
 
-/* ---------- how it works ---------- */
-.how { padding-top: 34px; margin-top: 26px; }
-.how-title { font-size: var(--t-h2); font-weight: 700; letter-spacing: -.022em; margin-bottom: 34px; }
+.wirelog figcaption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: var(--t-slug);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.wirelog figcaption code {
+  font-size: var(--t-slug);
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--ink-3);
+}
+
+.wirelog table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+}
+.wirelog th {
+  padding: 11px 0 9px;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--line-soft);
+}
+.wirelog td {
+  padding: 11px 0;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--line-soft);
+}
+.wirelog tbody tr:last-child td { border-bottom: 0; }
+.wirelog th:last-child,
+.wirelog td:last-child { text-align: right; }
+.wirelog td.num { color: var(--ink); font-variant-numeric: tabular-nums; }
+.wirelog td:last-child.num { color: var(--lcd-0); }
+.wirelog td .led { margin-right: 8px; }
+
+/* Ends on the table's readable edge (its width less the gutter the console
+   overlaps), so the block and the rows above it share one right edge. */
+.wirelog-foot {
+  max-width: calc(660px - 104px);
+  margin-top: 16px;
+  font-size: var(--t-sm);
+  line-height: 1.55;
+  color: var(--ink-3);
+}
+
+/* --------------------------------------------------------------------------
+   The object
+   -------------------------------------------------------------------------- */
+/* The console sits ON the desk, over the right edge of the log, and throws its
+   shadow across the rows. Two tidy columns would make it an illustration in a
+   layout; the overlap is what makes it an object. The log is held narrow so
+   nothing readable ever passes underneath it. */
+.hero-console {
+  grid-column: 7 / 13;
+  grid-row: 1;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: console-arrive 0.85s var(--ease-out) both;
+}
+@keyframes console-arrive {
+  from { opacity: 0; transform: translateY(22px) rotate(-3.4deg); }
+  to   { opacity: 1; transform: none; }
+}
+
+.hero-console-cap {
+  margin-top: 34px;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.03em;
+  text-align: center;
+  color: var(--ink-2);
+}
+
+/* --------------------------------------------------------------------------
+   The pipeline. Numbered because it genuinely is a four-stage sequence in
+   order; nothing else on the site gets numbers.
+   -------------------------------------------------------------------------- */
+.how {
+  padding-block: 20px 104px;
+  border-top: 1px solid var(--line-soft);
+}
 
 .how-list {
-  list-style: none; margin: 0; padding: 0;
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
-  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
 }
-.how-item { padding: 26px 26px 26px 0; border-right: 1px solid var(--line); }
-.how-item:last-child { border-right: none; padding-right: 0; }
 
-/* numbering is honest here: this genuinely is a four-stage pipeline in order */
-.how-step {
-  display: block; font-size: var(--t-xs); color: var(--indigo);
-  font-weight: 700; margin-bottom: 12px;
+.how-item {
+  padding: 4px 30px 8px 0;
+  border-left: 1px solid var(--line-soft);
+  padding-left: 24px;
 }
-.how-k { font-size: var(--t-h3); font-weight: 700; margin-bottom: 8px; letter-spacing: -.012em; }
-.how-d { font-size: var(--t-sm); color: var(--slate); line-height: 1.62; max-width: 30ch; }
+.how-item:first-child { border-left: 0; padding-left: 0; }
+
+.how-step {
+  display: block;
+  font-size: var(--t-xs);
+  letter-spacing: 0.1em;
+  color: var(--ink-2);
+}
+
+.how-k {
+  margin-top: 14px;
+  font-size: var(--t-h3);
+  font-weight: 700;
+  font-variation-settings: 'wdth' 92;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.how-d {
+  margin-top: 9px;
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  color: var(--ink-2);
+}
 
 .how-foot {
-  margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--line);
-  font-size: var(--t-sm); color: var(--slate); max-width: 62ch;
+  max-width: 62ch;
+  margin-top: 52px;
+  padding-top: 26px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+.how-foot em { font-style: italic; color: var(--lcd-0); }
+
+/* --------------------------------------------------------------------------
+   Adaptation
+   -------------------------------------------------------------------------- */
+/* Below this the overlap has no room to be an overlap, so the two areas
+   separate cleanly rather than colliding. */
+@media (max-width: 1180px) {
+  .hero { grid-template-columns: minmax(0, 1fr) minmax(0, 470px); gap: 0 36px; }
+  .hero-copy { grid-column: auto; grid-row: auto; }
+  .hero-console { grid-column: auto; grid-row: auto; }
+  .wirelog { max-width: 460px; }
+  .wirelog-foot { max-width: 460px; }
+  .wirelog figcaption,
+  .wirelog th:last-child,
+  .wirelog td:last-child { padding-right: 0; }
 }
 
-@media (max-width: 1020px) {
-  .hero { grid-template-columns: 1fr; gap: 54px; padding-top: 52px; }
-  .hero-bench { order: -1; }
-  .how-list { grid-template-columns: repeat(2, 1fr); }
-  .how-item:nth-child(2) { border-right: none; }
-  .how-item { padding-right: 22px; }
+@media (max-width: 980px) {
+  /* One column, but the reading order changes rather than simply stacking:
+     the claim, then the explanation, then the object, then the action, then
+     the proof. Leading a 390px screen with a console nobody has been
+     introduced to yet is a picture without a caption. */
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding-block: 40px 72px;
+  }
+  .hero-copy { display: contents; }
+  .wirelog, .wirelog-foot { max-width: none; }
+  .hero-title { order: 1; }
+  .hero-lede { order: 2; }
+  .hero-console { order: 3; align-items: flex-start; margin-left: 0; margin-block: 40px 4px; }
+  .hero-actions { order: 4; }
+  .wirelog { order: 5; }
+  .hero-console-cap { text-align: left; margin-top: 24px; }
+  .how-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 34px 0; }
+  .how-item:nth-child(3) { border-left: 0; padding-left: 0; }
 }
-@media (max-width: 600px) {
-  .how-list { grid-template-columns: 1fr; }
-  .how-item { border-right: none; border-bottom: 1px solid var(--line); padding-right: 0; }
-  .how-item:last-child { border-bottom: none; }
+
+@media (max-width: 620px) {
+  .hero { padding-block: 36px 56px; }
+  .hero-lede { font-size: 1rem; margin-top: 20px; }
+  .hero-actions { margin-top: 28px; }
+  .hero-actions .btn { flex: 1 1 auto; }
+  .wirelog { margin-top: 40px; }
+  .wirelog table { font-size: 0.8125rem; }
+  .wirelog th:nth-child(3), .wirelog td:nth-child(3) { display: none; }
+  .how-list { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .how-item { border-left: 0; padding-left: 0; padding-right: 0; }
+  .how-foot { font-size: 1rem; margin-top: 40px; }
 }
+

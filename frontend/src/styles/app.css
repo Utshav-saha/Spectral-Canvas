@@ -1,9 +1,33 @@
 .site-foot {
-  border-top: 1px solid var(--line);
-  padding: 26px 0;
-  position: relative; z-index: 1;
+  position: relative;
+  z-index: 1;
+  margin-top: auto;
+  padding-block: 26px 30px;
+  border-top: 1px solid var(--line-soft);
 }
 .site-foot .shell {
-  display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px;
-  font-size: var(--t-xs); color: var(--slate);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+.site-foot .foot-mark { color: var(--ink-2); }
+/* A slogan, not code or data: it gives the mono face back. */
+.site-foot .foot-line {
+  font-family: var(--display);
+  font-size: var(--t-sm);
+  letter-spacing: 0;
+  font-style: italic;
+  color: var(--ink-3);
+}
+
+.app-frame {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
 }

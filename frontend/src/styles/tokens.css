@@ -1,54 +1,97 @@
 /* ==========================================================================
-   Spectral Canvas design tokens
+   Spectral Canvas — The Wire Desk
+   Seed 720b0998 · direction "assigned" · mode persuade · code-led
 
-   Palette rationale: the subject is a bench instrument that paints pictures
-   with sound. The page is cool and papery so the signal traces (aqua) and the
-   locked state (coral) are the only saturated things on screen. Deliberately
-   cool-toned: a warm cream page with a terracotta accent is the house style of
-   every other project of this shape, so it is avoided on purpose.
+   The scene: a dark green room lit from one side. A bone-ivory handheld sits
+   on the desk, and its four-tone olive screen is the brightest thing present.
+   Everything else is the room. Oxide red is the only saturated colour on the
+   site and it appears exclusively on things that can be pressed.
+
+   State colours carry over from the incumbent system, retranslated into this
+   world: signal was indigo and is now the mid LCD tone; open/recovered was
+   aqua and is now the brightest ramp tone; locked/peak/alert was coral and is
+   now oxide. The contract that colour means state is unchanged.
    ========================================================================== */
 :root {
-  --paper:       #EDF1F8;
-  --paper-deep:  #E1E8F5;
-  --surface:     #FBFCFE;
-  --ink:         #14182F;
-  --slate:       #656D94;
-  --line:        #CDD6E8;
+  /* --- the room ------------------------------------------------------- */
+  --void:       #0C1310;
+  --room:       #121C17;
+  --panel:      #1B2620;
+  --raised:     #2A3A2C;
+  --well:       #0F1814;
+  --line:       #33453A;
+  --line-soft:  #223129;
 
-  --indigo:      #4B3FCF;
-  --indigo-soft: #EAE7FB;
-  --aqua:        #0E9C9C;
-  --aqua-soft:   #DFF2F1;
-  --coral:       #F06B47;
-  --coral-soft:  #FDEAE3;
+  /* --- the shell ------------------------------------------------------- */
+  --bone:       #E8E4D6;
+  --bone-hi:    #F4F1E7;
+  --bone-lo:    #C4BEAA;
+  --bone-edge:  #A8A292;
+  --bone-ink:   #5C6152;
 
-  --lcd:         #D2DCEE;
-  --lcd-ink:     #2B3559;
-  --chassis:     #F3F5FA;
-  --chassis-2:   #DDE4F1;
+  /* --- the screen: a four-tone ramp, darkest is the ink ---------------- */
+  --lcd-0:      #A8B78A;
+  --lcd-1:      #7F9166;
+  --lcd-2:      #4E6144;
+  --lcd-3:      #23301F;
+  --lcd-glow:   rgba(168, 183, 138, 0.20);
 
-  --display: 'Bricolage Grotesque', system-ui, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, monospace;
-  --squiggle: 'Caveat', cursive;
+  /* --- the one saturated colour: pressable things only ----------------- */
+  --oxide:      #8C2F39;
+  --oxide-hi:   #A63B46;
+  --oxide-lo:   #66202A;
 
-  --t-hero: clamp(2.5rem, 5.3vw, 4.35rem);
-  --t-h2:   clamp(1.6rem, 3vw, 2.4rem);
-  --t-h3:   1.18rem;
+  /* --- text on the room ------------------------------------------------ */
+  --ink:        #E4EADD;   /* 13.9:1 on --room */
+  --ink-2:      #A9B8A4;   /*  8.3:1 */
+  --ink-3:      #869A82;   /*  5.8:1 on --room, 5.2:1 on --panel */
+
+  /* --- state, inherited contract --------------------------------------- */
+  --signal:     #7F9166;
+  --open:       #A8B78A;
+  --locked:     #8C2F39;
+
+  /* --- type ------------------------------------------------------------ */
+  --display: 'Archivo', ui-sans-serif, system-ui, sans-serif;
+  --mono: 'Spline Sans Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  --t-hero: clamp(2.75rem, 5.5vw, 4.5rem);
+  --t-h2:   clamp(1.75rem, 3.2vw, 2.5rem);
+  --t-h3:   1.0625rem;
   --t-body: 1rem;
   --t-sm:   0.875rem;
-  --t-xs:   0.76rem;
+  --t-xs:   0.75rem;
+  --t-slug: 0.6875rem;
 
-  --r-sm: 6px;  --r-md: 12px;  --r-lg: 20px;  --r-xl: 28px;
+  /* --- measure ---------------------------------------------------------- */
+  --measure: 68ch;
+  --shell-w: 1240px;
 
-  --shadow-panel: 0 1px 2px rgba(20,24,47,.05), 0 12px 32px -16px rgba(20,24,47,.22);
-  --shadow-bench: 0 2px 4px rgba(20,24,47,.06), 0 30px 60px -30px rgba(20,24,47,.40);
-  --ease: cubic-bezier(.22,.61,.36,1);
+  /* --- radii: the shell's swept corner is the house shape -------------- */
+  --r-xs: 2px;
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 14px;
+  --r-shell: 23px 23px 94px 23px;
+
+  /* --- light comes from the upper left, one source --------------------- */
+  --lift-1: 0 1px 0 rgba(255, 255, 255, 0.04),
+            0 2px 6px rgba(0, 0, 0, 0.30);
+  --lift-2: 0 1px 0 rgba(255, 255, 255, 0.05),
+            0 6px 14px -6px rgba(0, 0, 0, 0.45),
+            0 20px 44px -24px rgba(0, 0, 0, 0.70);
+  --inset-well: inset 0 1px 3px rgba(0, 0, 0, 0.55),
+                inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+
+  --ease: cubic-bezier(0.16, 0.84, 0.32, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
-    animation-duration: .01ms !important;
+    animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: .01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

@@ -9,7 +9,11 @@ import './DoodleCanvas.css'
    a column of tones, so a jittery line becomes noisy audio. */
 
 const W = 720, H = 540
-const SWATCHES = ['#14182F', '#4B3FCF', '#0E9C9C', '#F06B47', '#E0B93C', '#8B5CF6', '#2F8F4E', '#FFFFFF']
+/* The canvas ground stays white because brightness is what becomes loudness:
+   a dark ground would encode as a wall of sound. The swatches sit in the
+   site's world but still span hue, because colour mode sends three real
+   passes and the user needs separable channels to see that happen. */
+const SWATCHES = ['#23301F', '#5E7346', '#A8B78A', '#8C2F39', '#C08A2E', '#2E6A70', '#3A4F7A', '#FFFFFF']
 const TOOLS = [
   { id: 'paint', label: 'Paint' },
   { id: 'pencil', label: 'Pencil' },
@@ -29,7 +33,7 @@ export default function DoodleCanvas({ onCommit, committed }) {
   const history = useRef([])
 
   const [tool, setTool] = useState('paint')
-  const [color, setColor] = useState('#14182F')
+  const [color, setColor] = useState('#23301F')
   const [weight, setWeight] = useState(8)
   const [smooth, setSmooth] = useState(true)
   const [saveNote, setSaveNote] = useState('')
