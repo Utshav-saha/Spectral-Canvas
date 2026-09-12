@@ -105,3 +105,63 @@ def tone_to_freq(tone, fs = 44100, Ts = 0.05):
 
     return peak_frequency
 
+
+def transmit(mapped_freqs, fs=44100, Ts=0.05):
+    frames = []
+    
+    # using Hann window as in image_encoder.py to reduce spectral leakage
+    window = np.hanning(int(fs * Ts))
+    
+    for freq in mapped_freqs:
+        frame = frequency_to_audio(freq, fs, Ts)
+        
+        # smooth the edges
+        frame *= window
+        
+        frames.append(frame)
+        
+    return np.concatenate(frames)
+
+
+def receive(audio, fs=44100, Ts=0.05):
+    N = int(fs * Ts)
+    total_frames = len(audio) // N
+    
+    recovered_freqs = []
+    
+    for i in range(total_frames):
+        start = i * N
+        end = start + N
+        chunk = audio[start:end]
+        
+        freq = tone_to_freq(chunk, fs, Ts)
+        recovered_freqs.append(freq)
+        
+    return recovered_freqs
+
+
+
+if __name__ == "__main__":
+    
+    original_message = "Hello, Audio World!"
+    print(f"Original Message: '{original_message}'")
+    
+    # --- TRANSMITTER SIDE ---
+    data = text_to_data(original_message)
+    freqs = bits_to_frequencies(data)
+    audio_track = transmit(freqs)
+    
+    print(f"Generated audio track with {len(audio_track)} samples.")
+    
+   
+    # --- RECEIVER SIDE ---
+    recovered_freqs = receive(audio_track)
+    recovered_data = frequencies_to_bits(recovered_freqs)
+    recovered_message = data_to_text(recovered_data)
+    
+    print(f"Recovered Message:  '{recovered_message}'")
+    
+    if original_message == recovered_message:
+        print("\nSUCCESS! The transmission round-trip is perfect.")
+    else:
+        print("\nFAILURE! Something got lost in translation.")
