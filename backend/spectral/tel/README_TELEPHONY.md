@@ -166,3 +166,44 @@ through `render_text_image` at the same size and it reads fine.
 2. **A retry path.** At 5% packet loss I measured 0.1% residual bit error. Add a
    CRC per 128-bit block so the receiver can mark blocks as bad rather than
    showing corrupt pixels.
+
+---
+
+## Higher resolution RGB: `image_webp.py`
+
+Raw pixels cannot scale past about 24×24 at 4 levels, because the modem only
+carries ~57 bit/s after Hamming. So this path sends the **compressed file**
+instead of the pixels:
+
+```
+image -> WebP -> Reed-Solomon (32 parity / 255) -> keyed byte shuffle -> 16-FSK
+```
+
+```
+pip install reedsolo
+python3 demo_webp.py                        # 96px RGB, open
+python3 demo_webp.py photo.jpg --size 128   # your own picture
+python3 demo_webp.py --lock                 # scrambled with numbers + PIN
+python3 demo_webp.py --lock --wrong-pin     # static
+python3 test_webp_pipeline.py               # sweep
+```
+
+| why | |
+|---|---|
+| WebP | 96×96 RGB is ~7 kbit instead of 110 kbit raw; quality comparable to raw 96×96 at 16 levels |
+| Reed-Solomon, not Hamming | a compressed file breaks on a single bad bit; RS repairs up to 16 bytes per 255 and costs 12.5% overhead instead of 43% |
+| byte shuffle, not pixel shuffle | `security.scramble` before WebP makes the file ~5× bigger (no spatial correlation left). The same `derive_key` now seeds a permutation of the coded bytes; a wrong PIN cannot be Reed-Solomon decoded |
+| shuffle even when open | a fixed public key spreads a lost packet's burst across many RS blocks |
+| self-describing | only the byte count travels in the header; the receiver needs nothing else from the sender |
+
+Measured through `channel_sim` (GSM 06.10, AGC, leading silence), 4 seeds each:
+
+| picture | on the wire | 2% loss | 5% loss | 2% loss, −25 dB noise |
+|---|---|---|---|---|
+| 64px | 44 s | 4/4 exact | | |
+| 96px | 67 s | 4/4 exact | 1/4 | 2/4 |
+| 128px | 86 s | 4/4 exact | | |
+
+"Exact" means the received WebP is byte-identical to the one sent. Reed-Solomon
+is all-or-nothing: past its limit the picture does not degrade gracefully, it
+fails to open. 5% loss and heavy noise are the open problem.

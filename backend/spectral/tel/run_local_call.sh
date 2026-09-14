@@ -37,15 +37,25 @@ TX="${1:-tx.wav}"
 RX="${2:-rx.wav}"
 CODEC="${CODEC:-GSM}"          # try iLBC, speex/8000, PCMU for comparison
 
-COMMON=(--null-audio --clock-rate=8000 --no-vad
+COMMON=(--null-audio --clock-rate=8000 --no-vad --no-tcp
         --dis-codec='*' --add-codec="$CODEC")
 
-echo "playing  $TX"
+# let the whole file play, plus margin for call setup
+DURATION=$(python3 -c "import wave,sys;w=wave.open('$TX');print(int(w.getnframes()/w.getframerate())+4)")
+
+echo "playing  $TX  (${DURATION}s)"
 echo "codec    $CODEC"
 echo "recording to $RX"
 
+# pjsua quits the moment its stdin closes ("Cannot switch back to console
+# from file redirection"), and a backgrounded job's stdin is closed. So each
+# instance gets a pipe that stays open for the length of the call and then
+# types pjsua's own quit command - a clean exit, which also lets the recorder
+# finish writing the WAV header (kill does not).
+# No --duration: pjsua reads --duration=0 as "hang up after 0 s".
+
 # Callee: answers automatically and plays the file into the call.
-pjsua "${COMMON[@]}" \
+{ sleep $((DURATION + 3)); echo q; sleep 3; } | pjsua "${COMMON[@]}" \
       --local-port=5062 \
       --auto-answer=200 \
       --play-file="$TX" --auto-play \
@@ -53,21 +63,15 @@ pjsua "${COMMON[@]}" \
 CALLEE=$!
 sleep 2
 
-# Caller: dials, records everything it receives.
-pjsua "${COMMON[@]}" \
+# Caller: dials, records everything it receives, hangs up, quits.
+{ sleep "$DURATION"; echo h; sleep 1; echo q; sleep 3; } | pjsua "${COMMON[@]}" \
       --local-port=5060 \
       --rec-file="$RX" --auto-rec \
-      --duration=0 \
       sip:127.0.0.1:5062 \
       >/tmp/pjsua_caller.log 2>&1 &
 CALLER=$!
 
-# let the whole file play, then tear down
-DURATION=$(python3 -c "import wave,sys;w=wave.open('$TX');print(int(w.getnframes()/w.getframerate())+4)")
-sleep "$DURATION"
-
-kill $CALLER $CALLEE 2>/dev/null || true
-wait 2>/dev/null || true
+wait $CALLER $CALLEE 2>/dev/null || true
 
 echo "done -> $RX"
 echo
