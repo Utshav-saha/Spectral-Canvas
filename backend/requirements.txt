@@ -5,3 +5,4 @@ numpy==2.2.1
 scipy==1.15.0
 pillow==11.1.0
 pydantic==2.10.4
+reedsolo==1.7.0

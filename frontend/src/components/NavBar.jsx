@@ -70,6 +70,9 @@ export default function NavBar() {
           <NavLink to="/receive" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
             Receive
           </NavLink>
+          <NavLink to="/call" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+            Call
+          </NavLink>
           <a className="nav-link" href="/#how">How it works</a>
         </nav>
       </div>
