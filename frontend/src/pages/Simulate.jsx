@@ -16,6 +16,10 @@ const MODES = [
    already knowing where they are. */
 const STAGES = ['Source', 'Settings', 'Encode', 'On the wire']
 
+/* Text skips the picture entirely: each byte is split into two 4-bit symbols
+   and each symbol is one of 16 tones (backend/spectral/text/text_codec.py). */
+const TEXT_MAX_CHARS = 1400
+
 export default function Simulate() {
   const [params] = useSearchParams()
   const [mode, setMode] = useState(params.get('mode') || 'image')
@@ -53,19 +57,20 @@ export default function Simulate() {
   const send = async () => {
     setError(''); setSending(true); setResult(null); setWave(null); setSelected(false)
     try {
+      const locked = secure && !isText
       const payload = {
         source_type: mode,
-        text: mode === 'text' ? text : null,
+        text: isText ? text : null,
         data_url: mode === 'doodle' ? doodle : null,
         target_width: size, target_height: size,
         mode: colour ? 'RGB' : 'L',
-        security_enabled: secure,
-        caller: secure ? caller : null,
-        receiver: secure ? receiver : null,
-        pin: secure ? pin : null,
+        security_enabled: locked,
+        caller: locked ? caller : null,
+        receiver: locked ? receiver : null,
+        pin: locked ? pin : null,
       }
       const response = await api.encode(payload, mode === 'image' ? file : null)
-      setResult(response)
+      setResult({ ...response, sentText: isText ? text : null })
       setWave(await api.waveform(response.session_id, 2000))
     } catch (e) {
       setError(e.message)
@@ -73,6 +78,8 @@ export default function Simulate() {
       setSending(false)
     }
   }
+
+  const isText = mode === 'text'
 
   const ready =
     (mode === 'image' && file) ||
@@ -87,11 +94,23 @@ export default function Simulate() {
         <p className="slug">
           <span>Send</span>
           <span>{mode}</span>
-          <span>{size}&times;{size}</span>
-          <span>{colour ? 'RGB, 3 passes' : 'Grayscale'}</span>
-          <span>{secure ? 'Locked' : 'Open'}</span>
-          <span className="slug-sep" />
-          <b>44.1 kHz &middot; 1&ndash;8 kHz</b>
+          {isText ? (
+            <>
+              <span>16-tone MFSK</span>
+              <span>{text.length} chars</span>
+              <span>Open</span>
+              <span className="slug-sep" />
+              <b>44.1 kHz &middot; 2&ndash;5 kHz</b>
+            </>
+          ) : (
+            <>
+              <span>{size}&times;{size}</span>
+              <span>{colour ? 'RGB, 3 passes' : 'Grayscale'}</span>
+              <span>{secure ? 'Locked' : 'Open'}</span>
+              <span className="slug-sep" />
+              <b>44.1 kHz &middot; 1&ndash;8 kHz</b>
+            </>
+          )}
         </p>
       </div>
 
@@ -105,13 +124,23 @@ export default function Simulate() {
             </p>
           </div>
 
-          <dl className="head-readout">
-            <dt>Lanes</dt><dd>{size}</dd>
-            <dt>Frames</dt><dd>{size}</dd>
-            <dt>Band</dt><dd>1&ndash;8 kHz</dd>
-            <dt>Frame</dt><dd>0.05 s</dd>
-            <dt>Passes</dt><dd>{colour ? 3 : 1}</dd>
-          </dl>
+          {isText ? (
+            <dl className="head-readout">
+              <dt>Tones</dt><dd>16</dd>
+              <dt>Symbols</dt><dd>{new TextEncoder().encode(text).length * 2}</dd>
+              <dt>Band</dt><dd>2&ndash;5 kHz</dd>
+              <dt>Symbol</dt><dd>0.05 s</dd>
+              <dt>Bits</dt><dd>4 / tone</dd>
+            </dl>
+          ) : (
+            <dl className="head-readout">
+              <dt>Lanes</dt><dd>{size}</dd>
+              <dt>Frames</dt><dd>{size}</dd>
+              <dt>Band</dt><dd>1&ndash;8 kHz</dd>
+              <dt>Frame</dt><dd>0.05 s</dd>
+              <dt>Passes</dt><dd>{colour ? 3 : 1}</dd>
+            </dl>
+          )}
         </header>
 
         <ol className="stagerail" aria-label="Progress">
@@ -188,8 +217,8 @@ export default function Simulate() {
                   </div>
                   <p className="toggle-hint">
                     {textMode === 'type'
-                      ? 'Whatever you type is drawn as a picture first, then sent as sound. Short lines read best.'
-                      : 'Upload a .txt or .md file and its contents are drawn the same way.'}
+                      ? 'Every character becomes two tones, one after another, picked from sixteen. The receiver listens for which tone is playing and spells the message back out.'
+                      : 'Upload a .txt or .md file and its contents are sent the same way.'}
                   </p>
 
                   {textMode === 'type' ? (
@@ -197,12 +226,12 @@ export default function Simulate() {
                       <label className="sr-only" htmlFor="sim-text">Message to send</label>
                       <textarea
                         id="sim-text"
-                        className="input text-area" rows={8} value={text} maxLength={2000}
+                        className="input text-area" rows={8} value={text} maxLength={TEXT_MAX_CHARS}
                         placeholder="Type a short message"
                         onChange={(e) => setText(e.target.value)}
                       />
                       <p className="text-count mono">
-                        <span>{text.length}</span> / 2000
+                        <span>{text.length}</span> / {TEXT_MAX_CHARS}
                       </p>
                     </>
                   ) : (
@@ -231,6 +260,14 @@ export default function Simulate() {
             </div>
 
             <div className="module-body">
+              {isText ? (
+                <p className="field-note">
+                  Text is sent one tone at a time, so grid size and colour do not apply. Each
+                  symbol lasts 0.05&nbsp;s, which makes a 100-character message about ten
+                  seconds long. Locking is not available for text yet.
+                </p>
+              ) : (
+              <>
               <div className="field">
                 <label className="field-label" htmlFor="grid-size">Grid size</label>
                 <select id="grid-size" className="input" value={size}
@@ -286,6 +323,8 @@ export default function Simulate() {
                   </div>
                 </div>
               )}
+              </>
+              )}
             </div>
 
             <div className="module-foot">
@@ -322,7 +361,10 @@ export default function Simulate() {
                   <span className="filecard-icon mono">WAV</span>
                   <span className="filecard-body">
                     <b className="mono">output.wav</b>
-                    <span className="mono">{result.duration.toFixed(2)}s · {result.rows}×{result.columns}</span>
+                    <span className="mono">
+                      {result.duration.toFixed(2)}s ·{' '}
+                      {result.kind === 'text' ? `${result.columns} symbols` : `${result.rows}×${result.columns}`}
+                    </span>
                   </span>
                   <span className={`filecard-tag ${result.encrypted ? 'locked' : ''}`}>
                     <span className={`led ${result.encrypted ? 'is-locked' : 'is-open'}`} aria-hidden="true" />
@@ -331,10 +373,19 @@ export default function Simulate() {
                 </button>
                 {!selected && <p className="field-note">Open the file to inspect its waveform.</p>}
 
-                <figure className="sent-preview">
-                  <img src={api.previewUrl(result.session_id)} alt="What was sent, at transmission size" />
-                  <figcaption>Sent at {result.rows} × {result.columns}</figcaption>
-                </figure>
+                {result.kind === 'text' ? (
+                  <figure className="sent-preview">
+                    <p className="message-well">{result.sentText}</p>
+                    <figcaption>
+                      {result.metadata.bytes} bytes · {result.columns} tones
+                    </figcaption>
+                  </figure>
+                ) : (
+                  <figure className="sent-preview">
+                    <img src={api.previewUrl(result.session_id)} alt="What was sent, at transmission size" />
+                    <figcaption>Sent at {result.rows} × {result.columns}</figcaption>
+                  </figure>
+                )}
 
                 <div className="result-actions">
                   <button type="button" className="btn btn-primary"

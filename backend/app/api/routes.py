@@ -51,12 +51,15 @@ async def encode_endpoint(
         "audio": result["audio"],
         "metadata": metadata,
         "activation": result["activation"],
+        "text": result["text"],
         "wav_bytes": result["wav_bytes"],
         "preview_png": result["preview_png"],
     })
 
+    is_text = metadata.get("kind") == "text"
     return {
         "session_id": session_id,
+        "kind": "text" if is_text else "image",
         "metadata": metadata,
         "stats": result["stats"],
         "encrypted": metadata["security_enabled"],
@@ -64,7 +67,7 @@ async def encode_endpoint(
         "columns": metadata["columns"],
         "duration": metadata["duration_seconds"],
         "audio_url": f"/api/audio/{session_id}",
-        "preview_url": f"/api/preview/{session_id}",
+        "preview_url": None if is_text else f"/api/preview/{session_id}",
     }
 
 
@@ -124,6 +127,8 @@ async def inspect_endpoint(file: UploadFile = File(...)):
     if metadata is None:
         message = ("This file has no Spectral Canvas header, so there is nothing "
                    "to rebuild from it. You can still inspect the waveform.")
+    elif metadata.get("kind") == "text":
+        message = "This is a text transmission. Decode it whenever you are ready."
     elif metadata.get("security_enabled"):
         message = "This transmission is locked. Enter the numbers and PIN to open it."
     else:
@@ -131,6 +136,7 @@ async def inspect_endpoint(file: UploadFile = File(...)):
 
     return {
         "session_id": session_id,
+        "kind": (metadata or {}).get("kind", "image"),
         "encrypted": bool(metadata and metadata.get("security_enabled")),
         "has_metadata": metadata is not None,
         "metadata": metadata,
@@ -154,16 +160,32 @@ def decode_endpoint(body: dict):
             session["audio"], metadata,
             caller=body.get("caller"), receiver=body.get("receiver"),
             pin=body.get("pin"), source_activation=session.get("activation"),
+            source_text=session.get("text"),
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:
         raise HTTPException(500, f"Rebuilding failed: {exc}")
 
+    if metadata.get("kind") == "text":
+        return {
+            "session_id": body["session_id"],
+            "kind": "text",
+            "text": result["text"],
+            "characters": len(result["text"]),
+            "symbols": metadata["symbols"],
+            "rows": metadata["rows"],
+            "columns": metadata["columns"],
+            "mode": "text",
+            "decrypted": False,
+            "metrics": result["metrics"],
+        }
+
     session_store.update(body["session_id"], {"recovered_png": result["png"]})
 
     return {
         "session_id": body["session_id"],
+        "kind": "image",
         "image_url": f"/api/recovered/{body['session_id']}",
         "rows": metadata["rows"],
         "columns": metadata["columns"],

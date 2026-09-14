@@ -52,7 +52,9 @@ export default function Receive() {
         pin: info.encrypted ? pin : null,
       })
       // cache-bust so a second attempt with a different PIN actually repaints
-      setRecovered({ ...response, url: `${response.image_url}?t=${Date.now()}` })
+      setRecovered(response.kind === 'text'
+        ? response
+        : { ...response, url: `${response.image_url}?t=${Date.now()}` })
     } catch (e) {
       setError(e.message)
     } finally {
@@ -103,7 +105,11 @@ export default function Receive() {
             <dt>Metadata</dt><dd>{info ? (info.has_metadata ? 'Present' : 'None') : '—'}</dd>
             <dt>Key</dt><dd>{info ? (info.encrypted ? 'Required' : 'Not set') : '—'}</dd>
             <dt>Rebuilt</dt>
-            <dd>{recovered ? `${recovered.rows} × ${recovered.columns}` : '—'}</dd>
+            <dd>
+              {!recovered ? '—'
+                : recovered.kind === 'text' ? `${recovered.characters} chars`
+                : `${recovered.rows} × ${recovered.columns}`}
+            </dd>
           </dl>
         </header>
 
@@ -209,7 +215,9 @@ export default function Receive() {
                       )}
                       <button type="button" className="btn btn-primary rcv-go"
                               onClick={open} disabled={opening}>
-                        {opening ? 'Rebuilding…' : info.encrypted ? 'Unlock and rebuild' : 'Rebuild picture'}
+                        {info.kind === 'text'
+                          ? (opening ? 'Decoding…' : 'Decode message')
+                          : opening ? 'Rebuilding…' : info.encrypted ? 'Unlock and rebuild' : 'Rebuild picture'}
                       </button>
                     </div>
                   )}
@@ -228,7 +236,36 @@ export default function Receive() {
                 : <p className="scope-empty">Load a file and open it to inspect the waveform.</p>}
             </div>
 
-            {recovered && (
+            {recovered && recovered.kind === 'text' && (
+              <div className="module recovered">
+                <div className="module-head">
+                  <h2>Decoded message</h2>
+                  <span className="mono recovered-meta">
+                    {recovered.characters} chars · {recovered.symbols} tones
+                    {recovered.metrics
+                      ? ` · ${recovered.metrics.matched}/${recovered.metrics.characters} match`
+                      : ''}
+                  </span>
+                </div>
+
+                <div className="module-body">
+                  <p className="message-well">{recovered.text}</p>
+
+                  <div className="recovered-foot">
+                    <p className="field-note">
+                      Read back from the audio alone: each pair of tones was matched to the
+                      nearest of sixteen frequencies and turned back into a byte.
+                    </p>
+                    <button type="button" className="btn btn-ghost"
+                            onClick={() => navigator.clipboard?.writeText(recovered.text)}>
+                      Copy message
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {recovered && recovered.kind !== 'text' && (
               <div className="module recovered">
                 <div className="module-head">
                   <h2>Rebuilt picture</h2>
