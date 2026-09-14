@@ -1,6 +1,0 @@
-{
-    "python.analysis.extraPaths": [
-        "./encoder"
-    ],
-    "python-envs.defaultEnvManager": "ms-python.python:system"
-}
