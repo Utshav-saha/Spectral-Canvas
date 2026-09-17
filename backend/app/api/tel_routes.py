@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.services import tel_pipeline as tel
 from app.storage import session_store
-from app.config import MAX_UPLOAD_BYTES
+from app.config import MAX_AUDIO_UPLOAD_BYTES, MAX_UPLOAD_BYTES
 
 router = APIRouter(prefix="/api/tel")
 
@@ -46,10 +46,11 @@ def _session(session_id, kinds, missing="That transmission has expired. Send it 
     return session
 
 
-async def _read_upload(file):
+async def _read_upload(file, limit=MAX_UPLOAD_BYTES):
     raw = await file.read()
-    if len(raw) > MAX_UPLOAD_BYTES:
-        raise HTTPException(400, "That file is larger than 12 MB.")
+    if len(raw) > limit:
+        raise HTTPException(
+            400, f"That file is larger than {limit // (1024 * 1024)} MB.")
     return raw
 
 
@@ -142,14 +143,17 @@ def call(body: CallBody):
 
 @router.post("/inspect")
 async def inspect(file: UploadFile = File(...)):
-    raw = await _read_upload(file)
+    raw = await _read_upload(file, MAX_AUDIO_UPLOAD_BYTES)
     try:
-        audio, source = tel.read_any_wav(raw)
+        # read_any_audio, not read_any_wav: a recording made on a phone is
+        # Matroska (.mka), which needs ffmpeg
+        audio, source = tel.read_any_audio(raw, file.filename)
         result = tel.run_inspect(audio)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:
-        raise HTTPException(400, f"That audio could not be read: {exc}")
+        raise HTTPException(400, f"That audio could not be read: {exc}. Supported: "
+                                 f"WAV, and .mka/.m4a/.mp4/.caf when ffmpeg is installed.")
 
     session_id = session_store.create({
         "kind": "tel-upload",

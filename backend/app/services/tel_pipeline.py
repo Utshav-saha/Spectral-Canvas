@@ -172,28 +172,119 @@ def read_any_wav(raw_bytes):
                    "resampled": rate != SAMPLE_RATE}
 
 
+def read_any_audio(raw_bytes, filename=None):
+    """Any recording -> mono float64 at 8 kHz.
+
+    WAV still goes through read_any_wav, byte for byte as before. Anything else
+    goes through ffmpeg, because Linphone's in-call recorder writes Matroska
+    (.mka) and an iOS share can arrive as .m4a or .caf -- none of which scipy
+    will open, and all of which are what a real call actually produces.
+
+    Imported inside the function so the app still starts if voip/ is absent.
+    """
+    if not raw_bytes:
+        raise ValueError("Choose an audio file to inspect.")
+
+    try:
+        return read_any_wav(raw_bytes)
+    except ValueError:
+        pass
+
+    try:
+        from voip.audio_io import load_audio_bytes
+    except ImportError:
+        raise ValueError(
+            "That does not look like a WAV file, and the converter for other "
+            "formats is unavailable on this server."
+        )
+
+    try:
+        audio, meta = load_audio_bytes(raw_bytes, filename)
+    except Exception as exc:
+        raise ValueError(str(exc))
+
+    return audio, {"sample_rate_in": int(meta.get("sample_rate_in", SAMPLE_RATE)),
+                   "channels": int(meta.get("channels", 1)),
+                   "resampled": bool(meta.get("resampled", False)),
+                   "container": meta.get("container"),
+                   "codec": meta.get("codec")}
+
+
 def _find_transmission(audio):
-    """Read the length header and check it describes audio that is actually
-    here. Without this, noise can claim a 65 kB packet and the demodulator
-    would build a minutes-long symbol grid out of nothing."""
-    length_bits, offset = fsk.read_header(audio)
+    """Where the transmission starts, and whether the header describes audio
+    that is actually here. Without the second half, noise can claim a 65 kB
+    packet and the demodulator would build a minutes-long symbol grid out of
+    nothing.
+
+    The search is delegated to voip.sync rather than fsk.read_header. The
+    modem's own preamble search only looks at the first three seconds, which is
+    all a simulated call ever needs -- the simulator prepends at most 900 ms.
+    A recording made on a phone has however long it took to press Record, walk
+    back to the laptop and start the audio, so a real .mka would come back
+    "not found" here for no better reason than it began too late.
+    """
+    from voip import sync as voip_sync
+
+    located = voip_sync.find_preamble(audio)
+    if not located.found:
+        return {"found": False, "packet_bytes": None, "offset": located.offset,
+                "score": located.score, "weak_symbols": None, "truncated": None}
+
+    length_bits, _ = fsk.read_header(audio, offset=located.offset)
     n_bytes = int("".join(str(int(b)) for b in length_bits), 2)
     frames = len(fsk.PREAMBLE) + fsk.HEADER_SYMBOLS + 2 * n_bytes
-    end = offset + frames * SYMBOL_SAMPLES
-    found = image_webp.RS_PARITY < n_bytes and end <= len(audio) * 1.1 + SAMPLE_RATE
-    return found, n_bytes, offset
+    end = located.offset + frames * SYMBOL_SAMPLES
+    plausible = image_webp.RS_PARITY < n_bytes and end <= len(audio) * 1.1 + SAMPLE_RATE
+
+    return {
+        "found": bool(plausible),
+        "packet_bytes": int(n_bytes) if plausible else None,
+        "offset": int(located.offset),
+        "score": round(float(located.score), 4),
+        "weak_symbols": _weak_symbols(audio, located.offset, n_bytes) if plausible else None,
+        "truncated": bool(end > len(audio)) if plausible else None,
+    }
+
+
+def _weak_symbols(audio, offset, n_bytes):
+    """How many payload symbols were close calls, for the inspect report."""
+    from voip.dsp import available_symbols, confidence_stats, symbol_decisions, \
+        symbol_magnitudes
+
+    start = offset + (len(fsk.PREAMBLE) + fsk.HEADER_SYMBOLS) * SYMBOL_SAMPLES
+    count = min(2 * int(n_bytes), available_symbols(audio, start))
+    if count <= 0:
+        return None
+    _, margin = symbol_decisions(symbol_magnitudes(audio, start, count))
+    return confidence_stats(margin)["weak_symbols"]
+
+
+def _from_preamble(audio, offset):
+    """The recording trimmed to start at the preamble.
+
+    image_webp.receive_image -> demodulate -> fsk.read_header runs its own
+    three-second search, one layer down. Handing it a slice that begins at the
+    preamble means that search trivially succeeds at offset 0, so a recording
+    with a long lead-in decodes without image_webp needing to change at all.
+    """
+    return audio[int(offset):] if offset else audio
 
 
 def run_inspect(audio):
-    found, n_bytes, offset = _find_transmission(audio)
+    located = _find_transmission(audio)
+    found = located["found"]
+
     opens = False
     if found:
-        image, _ = image_webp.receive_image(audio)
+        image, _ = image_webp.receive_image(_from_preamble(audio, located["offset"]))
         opens = image is not None
 
     if not found:
         message = ("No call transmission was found in this audio. It needs the "
                    "16-tone preamble that the send side puts at the start.")
+    elif located["truncated"]:
+        message = ("This transmission was found, but the recording stops before it "
+                   "ends. Rebuilding it will probably fail; record the whole call.")
     elif opens:
         message = "This transmission is open. Rebuild it whenever you are ready."
     else:
@@ -202,11 +293,15 @@ def run_inspect(audio):
 
     return {
         "found": bool(found),
-        "packet_bytes": int(n_bytes) if found else None,
-        "offset_seconds": round(offset / SAMPLE_RATE, 3) if found else None,
+        "packet_bytes": located["packet_bytes"],
+        "offset_seconds": round(located["offset"] / SAMPLE_RATE, 3) if found else None,
         "opens_without_key": opens,
         "message": message,
         "stats": wf.global_stats(audio, SAMPLE_RATE),
+        # additive: the Call page ignores what it does not know about
+        "preamble_score": located["score"],
+        "weak_symbols": located["weak_symbols"],
+        "truncated": located["truncated"],
     }
 
 
@@ -217,13 +312,14 @@ def run_receive(audio, locked=False, caller=None, receiver=None, pin=None,
         validate_credentials(caller, receiver, pin)
         creds = dict(caller=caller, receiver=receiver, pin=pin)
 
-    found, _, _ = _find_transmission(audio)
-    if not found:
+    located = _find_transmission(audio)
+    if not located["found"]:
         raise ValueError("No call transmission was found in this audio, so there is "
                          "nothing to rebuild.")
 
     try:
-        image, report = image_webp.receive_image(audio, **creds)
+        image, report = image_webp.receive_image(
+            _from_preamble(audio, located["offset"]), **creds)
     except Exception as exc:
         raise ValueError(f"The audio could not be read as a transmission: {exc}")
 
@@ -231,7 +327,10 @@ def run_receive(audio, locked=False, caller=None, receiver=None, pin=None,
         "ok": image is not None,
         "locked": bool(locked),
         "packet_bytes": report["packet_bytes"],
-        "offset_seconds": round(report["offset"] / SAMPLE_RATE, 3),
+        # report["offset"] is relative to the trimmed slice, so add back where
+        # the slice began to keep this the position in the original recording
+        "offset_seconds": round(
+            (located["offset"] + report["offset"]) / SAMPLE_RATE, 3),
     }
 
     if image is None:
