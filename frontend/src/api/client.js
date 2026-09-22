@@ -10,6 +10,13 @@ async function unwrap(response) {
   return response.json()
 }
 
+// Which tracks the backend will accept, plus their limits. The selector on
+// the Send page is built from this, so a track the server dropped cannot be
+// asked for from the UI.
+export async function health() {
+  return unwrap(await fetch('/api/health'))
+}
+
 export async function encode(params, file) {
   const body = new FormData()
   body.append('payload', JSON.stringify(params))

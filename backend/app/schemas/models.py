@@ -3,6 +3,11 @@ from pydantic import BaseModel, Field
 
 
 class EncodeParams(BaseModel):
+    # Which of the two tracks carries this transmission. "wav" is the clean
+    # 44.1 kHz file; "call" is 16-FSK at 8 kHz, built to survive a voice
+    # codec. See app/config.TRACKS.
+    track: Literal["wav", "call"] = "wav"
+
     source_type: Literal["image", "text", "doodle"] = "image"
     text: Optional[str] = None
     data_url: Optional[str] = None
@@ -25,6 +30,7 @@ class EncodeParams(BaseModel):
 
 class EncodeResponse(BaseModel):
     session_id: str
+    track: str
     metadata: dict
     stats: dict
     encrypted: bool
@@ -37,6 +43,7 @@ class EncodeResponse(BaseModel):
 
 class InspectResponse(BaseModel):
     session_id: str
+    track: str
     encrypted: bool
     has_metadata: bool
     metadata: Optional[dict] = None
@@ -53,6 +60,7 @@ class DecodeRequest(BaseModel):
 
 class DecodeResponse(BaseModel):
     session_id: str
+    track: str
     image_url: str
     rows: int
     columns: int

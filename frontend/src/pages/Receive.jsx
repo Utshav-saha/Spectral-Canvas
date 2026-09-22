@@ -9,6 +9,10 @@ import './Receive.css'
    from the top the way the console's screen does, because that is what the
    decoder is actually doing — measuring one slice at a time. */
 
+/* The decoder reads the track out of the file's own header, so this is only
+   for saying which one it was. Track 3 was cut - see docs/RESTORATION_PLAN.md. */
+const TRACK_NAMES = { wav: 'Direct WAV', call: 'Phone call' }
+
 const STAGES = ['File', 'Inspect', 'Key', 'Rebuilt']
 
 export default function Receive() {
@@ -83,6 +87,7 @@ export default function Receive() {
           <span>{file ? file.name : 'No file'}</span>
           {info && <span>{info.stats.duration}s</span>}
           {info && <span>{info.stats.sample_rate} Hz</span>}
+          {info && <span>{TRACK_NAMES[info.track] || 'Direct WAV'}</span>}
           <span>{info ? (info.encrypted ? 'Locked' : 'Open') : '—'}</span>
           <span className="slug-sep" />
           <b>Decoder ready</b>
@@ -102,7 +107,7 @@ export default function Receive() {
           <dl className="head-readout">
             <dt>Duration</dt><dd>{info ? `${info.stats.duration} s` : '—'}</dd>
             <dt>Sample rate</dt><dd>{info ? `${info.stats.sample_rate} Hz` : '—'}</dd>
-            <dt>Metadata</dt><dd>{info ? (info.has_metadata ? 'Present' : 'None') : '—'}</dd>
+            <dt>Track</dt><dd>{info ? (TRACK_NAMES[info.track] || 'Direct WAV') : '—'}</dd>
             <dt>Key</dt><dd>{info ? (info.encrypted ? 'Required' : 'Not set') : '—'}</dd>
             <dt>Rebuilt</dt>
             <dd>

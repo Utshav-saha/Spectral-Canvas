@@ -28,8 +28,8 @@ python spectral/text/text_codec.py
 # Telephony experiments (bare sibling imports, so run from inside tel/; channel_sim needs ffmpeg with libgsm)
 cd backend/spectral/tel
 python3 demo.py                     # image -> 16-FSK -> simulated GSM call -> image; writes tx.wav
-python3 test_pipeline.py            # the multitone-over-GSM attempt (reproduces the ~17.7% error result)
 ./run_local_call.sh tx.wav rx.wav   # real SIP loopback call; needs `brew install pjproject` (pjsua)
+cd rejected && python3 test_pipeline.py   # cut Track 3; reproduces the ~17.7% error result
 
 # Frontend (Vite on :5173; proxies /api -> 127.0.0.1:8000)
 cd frontend
@@ -59,13 +59,38 @@ There is no linter and no JS test setup. The root `.venv` lacks FastAPI, so use 
 - `channel/effects.py` (noise, echo, Butterworth filters, clipping, resampling/aliasing, and `apply_chain(audio, sr, effects)`) and `analysis/waveform.py::spectrogram()` are written but not yet exposed through an endpoint.
 - **Text does not go through the image pipeline.** `source_type: "text"` uses `spectral/text/text_codec.py`: each UTF-8 byte is split into two 4-bit symbols, and each symbol is one Hann-windowed tone out of 16, spaced between 2 and 5 kHz, lasting 0.05 s. Decoding takes the FFT peak of each symbol and snaps it to the nearest tone. `pipeline.run_encode_text` and `run_decode_text` wrap the codec. Text WAV metadata carries `"kind": "text"`, and the routes branch on that field: decode returns `text` instead of `image_url`. Text can't be locked, and messages are capped at about 1426 UTF-8 bytes so the WAV stays under the 12 MB upload limit.
 
-### Telephony path (`backend/spectral/tel/`, standalone, not wired into the app)
+### Telephony path (`backend/spectral/tel/`)
 
-This directory sends images over an 8 kHz voice call (GSM 06.10 over SIP), and `tel/README_TELEPHONY.md` has the full reasoning. Voice codecs model each 20 ms frame with an 8-pole LPC envelope. That keeps *which* frequency is present but loses *how loud* it is, so the main app's parallel multitone scheme, where amplitude carries each pixel, fails here.
+This directory sends images over an 8 kHz voice call (GSM 06.10 over SIP), and `tel/README_TELEPHONY.md` has the full reasoning. `call_track.py` is the app-facing wrapper (**Track 2**, see below); the rest of the directory is still standalone scripts you run by hand. Voice codecs model each 20 ms frame with an 8-pole LPC envelope. That keeps *which* frequency is present but loses *how loud* it is, so the main app's parallel multitone scheme, where amplitude carries each pixel, fails here.
 - `fsk_codec.py` is the working modem. It sends one tone per 40 ms symbol, chosen from 16 tones between 700 and 3200 Hz, which gives 100 bit/s raw. A preamble handles sync. The payload is Hamming(7,4) coded and interleaved, with a 16-bit length header. The decoder only takes an `argmax` over tone bins and never compares magnitudes. `image_fsk.py` converts between activation matrices and bits, and its `budget()` function gives the call length. `channel_sim.py` simulates the call offline: GSM, packet loss, AGC and noise.
-- The `tel_*.py` files and `test_pipeline.py` hold the failed narrowband multitone attempt with pilot tones. They are kept on purpose for the report.
+- `tel/rejected/` holds Track 3, the failed narrowband multitone attempt with pilot tones (`tel_*.py`, `test_pipeline.py`). It is cut from the product and imported by nothing that ships, but kept on purpose for the report; `tel/rejected/README.md` has the reasoning and the numbers. `tel/patterns.py` holds the test image that used to live in `test_pipeline.py`, because `demo.py` still needs it.
 - To reuse main-library pieces on this path, keep `scramble`/`unscramble`, which permute before the modem. **Drop the additive `generate_mask`/`remove_mask`**, because an RTP path never gives sample-exact alignment. `recover_activation` and the energy- or correlation-based sync don't carry over either.
 - The bandwidth sets the limits: 24×24 at 4 levels takes about 20 s, while the app's default of 64×64 RGB at 16 levels would take about 14 minutes. Outputs must be 16-bit mono PCM at 8 kHz.
+
+### The two tracks
+
+A transmission goes out on one of exactly two tracks, chosen by the `track`
+field on `/api/encode` and written into the WAV's `SpCv` metadata so the
+receiver never has to be told which one it is holding. `app/config.py::TRACKS`
+is the whole list, `/api/health` serves it, and the Send page builds its Track
+selector from that response. `pipeline.track_of(metadata)` reads it back; a
+file with no `track` field predates the split and is Track 1.
+
+- **Track 1, `"wav"`** - `spectral/encoder/audio_encoder.py`, the original
+  parallel multitone scheme. 44.1 kHz, 1-8 kHz, up to 128x128, 16 gray levels.
+  The pixel is in a tone's *amplitude*. Text (`source_type: "text"`) is Track 1
+  only; the backend refuses it on a call.
+- **Track 2, `"call"`** - `spectral/tel/call_track.py` wrapping `image_fsk` and
+  `fsk_codec`. 8 kHz, 700-3200 Hz, one tone per 40 ms symbol out of 16, 32x32
+  at 4 levels, ~57 bit/s after Hamming(7,4). The pixel is in *which tone* is
+  present, which is the only thing a GSM codec preserves. Locking is the
+  permutation half only: `scramble`/`unscramble` run upstream of the modem, and
+  the additive noise mask is dropped because cancelling it needs sample-exact
+  alignment an RTP path cannot give. `CALL_MAX_SECONDS` (5 min) caps how much
+  call time one request may ask for, which also keeps the 8 kHz WAV under the
+  upload limit.
+- **Track 3 was cut.** It was Track 1's scheme sent over a call, and it sits in
+  `spectral/tel/rejected/`. Nothing imports it. Don't wire it back in.
 
 ### HTTP layer
 

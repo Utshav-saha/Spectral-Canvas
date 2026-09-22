@@ -7,14 +7,25 @@ from fastapi.responses import Response
 from app.schemas.models import EncodeParams
 from app.services import pipeline
 from app.storage import session_store
-from app.config import MAX_UPLOAD_BYTES, MAX_TEXT_CHARS, DEFAULTS
+from app.config import (
+    MAX_UPLOAD_BYTES, MAX_TEXT_CHARS, DEFAULTS, TRACKS, DEFAULT_TRACK,
+    CALL_MAX_SECONDS,
+)
 
 router = APIRouter(prefix="/api")
 
 
 @router.get("/health")
 def health():
-    return {"status": "ok", "defaults": DEFAULTS}
+    """Also the frontend's source of truth for which tracks exist. Track 3 was
+    cut, so anything not listed here cannot be asked for."""
+    return {
+        "status": "ok",
+        "defaults": DEFAULTS,
+        "tracks": list(TRACKS.values()),
+        "default_track": DEFAULT_TRACK,
+        "call_max_seconds": CALL_MAX_SECONDS,
+    }
 
 
 @router.post("/encode")
@@ -59,6 +70,7 @@ async def encode_endpoint(
     is_text = metadata.get("kind") == "text"
     return {
         "session_id": session_id,
+        "track": pipeline.track_of(metadata),
         "kind": "text" if is_text else "image",
         "metadata": metadata,
         "stats": result["stats"],
@@ -124,18 +136,24 @@ async def inspect_endpoint(file: UploadFile = File(...)):
         "wav_bytes": raw,
     })
 
+    track = pipeline.track_of(metadata)
+    # the file says which track it came in on, so the receiver never picks
+    carried = "" if track == DEFAULT_TRACK else f"It came in over a phone call. "
+
     if metadata is None:
         message = ("This file has no Spectral Canvas header, so there is nothing "
                    "to rebuild from it. You can still inspect the waveform.")
     elif metadata.get("kind") == "text":
         message = "This is a text transmission. Decode it whenever you are ready."
     elif metadata.get("security_enabled"):
-        message = "This transmission is locked. Enter the numbers and PIN to open it."
+        message = (f"{carried}This transmission is locked. Enter the numbers "
+                   f"and PIN to open it.")
     else:
-        message = "This transmission is open. Rebuild it whenever you are ready."
+        message = f"{carried}This transmission is open. Rebuild it whenever you are ready."
 
     return {
         "session_id": session_id,
+        "track": track,
         "kind": (metadata or {}).get("kind", "image"),
         "encrypted": bool(metadata and metadata.get("security_enabled")),
         "has_metadata": metadata is not None,
@@ -170,6 +188,7 @@ def decode_endpoint(body: dict):
     if metadata.get("kind") == "text":
         return {
             "session_id": body["session_id"],
+            "track": pipeline.track_of(metadata),
             "kind": "text",
             "text": result["text"],
             "characters": len(result["text"]),
@@ -185,6 +204,7 @@ def decode_endpoint(body: dict):
 
     return {
         "session_id": body["session_id"],
+        "track": pipeline.track_of(metadata),
         "kind": "image",
         "image_url": f"/api/recovered/{body['session_id']}",
         "rows": metadata["rows"],

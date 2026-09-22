@@ -159,6 +159,13 @@ def create_metadata_json(sampling_rate, rows, cols, row_frequencies,
                          f_min, f_max, frame_duration,
                          frame_samples, gray_levels, bin_snap, security_enabled, alpha, mode, normalization_gain, final_audio):
     metadata = {
+        # Track 1: the clean 44.1 kHz file. Track 2 (16-FSK over a voice call)
+        # writes "call" here instead, and that field is what the decoder
+        # branches on. A file written before tracks existed has no field, and
+        # readers treat a missing one as "wav".
+        "track": "wav",
+        "kind": "image",
+        "scheme": "multitone",
         "sample_rate": sampling_rate,
         "rows": rows,
         "columns": cols,

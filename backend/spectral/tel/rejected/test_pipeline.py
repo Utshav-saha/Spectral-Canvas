@@ -1,4 +1,14 @@
-"""Encode -> simulated VoIP channel -> decode, and report the error."""
+"""Encode -> simulated VoIP channel -> decode, and report the error.
+
+Cut from the product - see README.md in this directory. Kept so the 17.7%
+result stays reproducible for the report.
+"""
+
+import os
+import sys
+
+# channel_sim.py stayed in the parent directory with the shipping Track 2 code
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 

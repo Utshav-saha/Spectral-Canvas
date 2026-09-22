@@ -94,6 +94,13 @@ def activation_to_pixels(activation, gray_levels=16):
     return np.clip(np.rint(pixels),0,255).astype(np.uint8)
 
 
+def to_image_array(activation, gray_levels=16):
+    """The same 0..1 -> 0..255 map the decoder applies, run on the SENT
+    activation. That gives the reference to measure a recovered image against,
+    so the comparison is scheme against scheme and not against the quantiser."""
+    return activation_to_pixels(activation, gray_levels)
+
+
 def split_rgb_audio(audio, metadata):
     
     columns = metadata["columns"]

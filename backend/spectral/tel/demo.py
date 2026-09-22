@@ -12,7 +12,7 @@ import numpy as np
 import fsk_codec as fsk
 import image_fsk
 import channel_sim
-from test_pipeline import test_image
+from patterns import test_image
 
 
 def pixels(activation):

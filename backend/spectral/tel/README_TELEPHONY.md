@@ -132,7 +132,7 @@ exactly what a speech codec discards first.
 | `channel_sim.py` | offline GSM roundtrip + packet loss + AGC + noise, ~1 s per trial |
 | `demo.py` | full round trip with an ASCII preview, writes `tx.wav` |
 | `run_local_call.sh` | two `pjsua` instances, real SIP call, free |
-| `tel_*.py`, `test_pipeline.py` | the narrowband multitone attempt, kept so you can reproduce the 17.7% result for your report |
+| `rejected/tel_*.py`, `rejected/test_pipeline.py` | the narrowband multitone attempt (Track 3), cut from the product and moved aside, kept so you can reproduce the 17.7% result for your report - see `rejected/README.md` |
 
 ---
 
