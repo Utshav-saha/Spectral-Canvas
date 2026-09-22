@@ -10,8 +10,12 @@ pjsua is already a dependency here -- `spectral/tel/run_local_call.sh` uses two
 instances of it on loopback for the rehearsal. This module points one instance
 at a real account instead, plays tx.wav into the call, and hangs up.
 
-    brew install pjproject          # macOS
-    which pjsua                     # empty? see run_local_call.sh's header
+    macOS    brew install pjproject
+    Linux    the pjproject / pjsua2 package
+    Windows  **not packaged**, by MSYS2 or winget. Use `voip/audio_out.py`
+             instead: a virtual audio cable plus a softphone reaches the same
+             channel with no SIP stack here at all, and only the dialling is
+             done by hand.
 
 Credentials come from the environment, never from a request body:
 
@@ -33,6 +37,7 @@ and iOS does not allow it at all.
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -46,12 +51,36 @@ from voip.config import SAMPLE_RATE, VoipDependencyError, VoipError
 _LOCK = threading.Lock()
 _CALLS = {}
 
-MISSING_PJSUA = (
-    "pjsua is not installed, so no call can be placed. On macOS: "
-    "brew install pjproject. If `which pjsua` is still empty afterwards, the "
-    "formula shipped it under a versioned name - see the header of "
-    "spectral/tel/run_local_call.sh."
-)
+
+def _missing_pjsua():
+    """Said differently per platform, because the answer differs a lot.
+
+    Windows has no pjsua package on MSYS2 or winget; building pjproject from
+    source is the only way to get one, so the honest advice there is to use
+    the playback route instead, which needs no SIP stack at all.
+    """
+    if sys.platform.startswith("win"):
+        return (
+            "pjsua is not available on Windows - neither MSYS2 nor winget "
+            "packages it, and building pjproject from source is a project in "
+            "itself. Use the playback route instead: install VB-CABLE and a "
+            "softphone, place the call by hand, and press Play. It reaches "
+            "exactly the same channel; only the dialling is manual."
+        )
+    if sys.platform == "darwin":
+        return (
+            "pjsua is not installed, so no call can be placed from here. "
+            "brew install pjproject. If `which pjsua` is still empty "
+            "afterwards, the formula shipped it under a versioned name - see "
+            "the header of spectral/tel/run_local_call.sh."
+        )
+    return (
+        "pjsua is not installed, so no call can be placed from here. It is "
+        "packaged as pjproject or pjsua2 on most distributions."
+    )
+
+
+MISSING_PJSUA = _missing_pjsua()
 
 MISSING_CREDENTIALS = (
     "No SIP account is configured on this server. Set VOIP_SIP_IDENTITY and "
@@ -92,14 +121,22 @@ def credentials():
 
 
 def status():
+    """Whether this machine can dial, and if not, what to do about it.
+
+    `playback_instead` is the important field on Windows: there is no pjsua to
+    install, so the UI should offer the other route rather than a dead end.
+    """
     creds = credentials()
+    have_pjsua = available()
     return {
-        "pjsua": available(),
+        "pjsua": have_pjsua,
         "configured": creds is not None,
+        "platform": sys.platform,
         "identity": creds["identity"] if creds else None,
         "registrar": creds["registrar"] if creds else None,
-        "message": (None if available() and creds else
-                    MISSING_PJSUA if not available() else MISSING_CREDENTIALS),
+        "playback_instead": not have_pjsua,
+        "message": (None if have_pjsua and creds else
+                    _missing_pjsua() if not have_pjsua else MISSING_CREDENTIALS),
     }
 
 

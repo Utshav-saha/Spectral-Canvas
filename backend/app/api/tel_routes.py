@@ -59,6 +59,14 @@ class DialBody(BaseModel):
     codec: Optional[str] = None
 
 
+class PlayBody(BaseModel):
+    session_id: str
+    # an output device index or a name fragment; null picks the best virtual
+    # cable on this machine
+    device: Optional[str] = None
+    lead_in: float = Field(3.0, ge=0.0, le=30.0)
+
+
 class InspectBody(BaseModel):
     session_id: str
     reference_id: Optional[str] = None
@@ -285,6 +293,62 @@ def dial_progress(call_id: str):
     if found is None:
         raise HTTPException(404, "No such call.")
     return {"call_id": call_id, **found}
+
+
+@router.get("/play/devices")
+def play_devices():
+    """Audio outputs, with the virtual cables marked.
+
+    This is the route that works everywhere. pjsua is not packaged for
+    Windows, so dialling from the server is macOS and Linux only; playing the
+    transmission into a softphone's microphone needs no SIP stack at all.
+    """
+    try:
+        from voip import audio_out
+    except ImportError as exc:
+        return {"ready": False, "devices": [],
+                "message": f"The playback module is unavailable: {exc}"}
+    return audio_out.status()
+
+
+@router.post("/play")
+def play(body: PlayBody):
+    """Play the transmission into a virtual cable, for a call placed by hand."""
+    session = _session(body.session_id, {"tel-send"})
+    try:
+        from voip import audio_out
+        from voip.config import VoipDependencyError, VoipError
+    except ImportError as exc:
+        raise HTTPException(503, f"The playback module is unavailable: {exc}")
+
+    try:
+        play_id = audio_out.play(session["audio"], device=body.device,
+                                 lead_in=body.lead_in)
+    except VoipDependencyError as exc:
+        raise HTTPException(503, str(exc))
+    except VoipError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(500, f"Playback could not start: {exc}")
+
+    return {"play_id": play_id, "session_id": body.session_id,
+            **(audio_out.progress(play_id) or {})}
+
+
+@router.get("/play/{play_id}")
+def play_progress(play_id: str):
+    from voip import audio_out
+    found = audio_out.progress(play_id)
+    if found is None:
+        raise HTTPException(404, "No such playback.")
+    return {"play_id": play_id, **found}
+
+
+@router.post("/play/stop")
+def play_stop():
+    """Cut a transmission short. The call itself is not ours to hang up."""
+    from voip import audio_out
+    return {"stopped": audio_out.stop()}
 
 
 @router.get("/audio/{session_id}")
