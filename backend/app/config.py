@@ -7,10 +7,6 @@ CORS_ORIGINS = [
 
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
 
-# Call recordings are bigger than pictures. A two-minute Generation C
-# transmission recorded at 48 kHz stereo is about 23 MB, so the 12 MB picture
-# limit would reject a perfectly good recording.
-MAX_AUDIO_UPLOAD_BYTES = 32 * 1024 * 1024
 MAX_TEXT_CHARS = 2000
 SESSION_TTL_SECONDS = 60 * 60
 MAX_SESSIONS = 200

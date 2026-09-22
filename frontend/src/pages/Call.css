@@ -7,11 +7,6 @@
 
 .call { position: relative; z-index: 1; padding-bottom: 110px; }
 
-.call-modes {
-  display: inline-flex;
-  margin-top: 22px;
-}
-
 .call-section { margin-top: 64px; }
 
 /* two selects side by side inside a settings module */
@@ -97,21 +92,5 @@
 
 @media (max-width: 620px) {
   .call-pair { grid-template-columns: minmax(0, 1fr); gap: 0; }
-  .call-modes { display: flex; }
   .call-compare.is-pair { grid-template-columns: minmax(0, 1fr); }
 }
-
-/* ---- placing a real call ---------------------------------------------- */
-
-.call-dial { margin-top: 24px; }
-
-.call-steps {
-  margin: 16px 0 10px;
-  padding-left: 20px;
-  color: var(--ink-2);
-  font-size: var(--t-sm);
-  display: grid;
-  gap: 5px;
-}
-
-.call-steps b { color: var(--ink); }

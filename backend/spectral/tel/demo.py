@@ -4,7 +4,7 @@ Full demonstration:  image -> FSK audio -> simulated call -> image.
     python3 demo.py
 
 Also writes tx.wav (8 kHz, 16-bit mono) which you can feed straight into
-run_local_call.sh for a real SIP call.
+channel_sim for the simulated call.
 """
 
 import numpy as np
@@ -61,7 +61,7 @@ def main(size=24, levels=4, loss=0.02, seed=5):
     show(source, "sent")
     print()
     show(recovered, "received")
-    print("\n  wrote tx.wav (8 kHz 16-bit mono) - ready for run_local_call.sh")
+    print("\n  wrote tx.wav (8 kHz 16-bit mono)")
 
 
 if __name__ == "__main__":

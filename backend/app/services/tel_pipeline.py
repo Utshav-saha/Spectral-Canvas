@@ -21,12 +21,10 @@ import io
 import os
 import shutil
 import sys
-from math import gcd
 
 import numpy as np
 from PIL import Image
 from scipy.io import wavfile
-from scipy.signal import resample_poly
 
 _TEL = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "spectral", "tel")
@@ -222,135 +220,32 @@ def run_call(audio, loss, noise_db, seed):
     }
 
 
-def read_any_wav(raw_bytes):
-    """Any PCM or float WAV -> mono float64 at 8 kHz, plus what it was before."""
-    try:
-        rate, data = wavfile.read(io.BytesIO(raw_bytes))
-    except Exception:
-        raise ValueError("That does not look like a WAV file.")
-
-    channels = 1 if data.ndim == 1 else data.shape[1]
-    if data.dtype == np.int16:
-        audio = data / 32768.0
-    elif data.dtype == np.int32:
-        audio = data / 2147483648.0
-    elif data.dtype == np.uint8:
-        audio = (data.astype(np.float64) - 128.0) / 128.0
-    else:
-        audio = data.astype(np.float64)
-    if audio.ndim > 1:
-        audio = audio.mean(axis=1)
-    audio = np.asarray(audio, dtype=np.float64)
-    if len(audio) == 0:
-        raise ValueError("That WAV file has no audio in it.")
-
-    if rate != SAMPLE_RATE:
-        g = gcd(int(rate), SAMPLE_RATE)
-        audio = resample_poly(audio, SAMPLE_RATE // g, int(rate) // g)
-
-    return audio, {"sample_rate_in": int(rate), "channels": channels,
-                   "resampled": rate != SAMPLE_RATE}
-
-
-def read_any_audio(raw_bytes, filename=None):
-    """Any recording -> mono float64 at 8 kHz.
-
-    WAV still goes through read_any_wav, byte for byte as before. Anything else
-    goes through ffmpeg, because Linphone's in-call recorder writes Matroska
-    (.mka) and an iOS share can arrive as .m4a or .caf -- none of which scipy
-    will open, and all of which are what a real call actually produces.
-
-    Imported inside the function so the app still starts if voip/ is absent.
-    """
-    if not raw_bytes:
-        raise ValueError("Choose an audio file to inspect.")
-
-    try:
-        return read_any_wav(raw_bytes)
-    except ValueError:
-        pass
-
-    try:
-        from voip.audio_io import load_audio_bytes
-    except ImportError:
-        raise ValueError(
-            "That does not look like a WAV file, and the converter for other "
-            "formats is unavailable on this server."
-        )
-
-    try:
-        audio, meta = load_audio_bytes(raw_bytes, filename)
-    except Exception as exc:
-        raise ValueError(str(exc))
-
-    return audio, {"sample_rate_in": int(meta.get("sample_rate_in", SAMPLE_RATE)),
-                   "channels": int(meta.get("channels", 1)),
-                   "resampled": bool(meta.get("resampled", False)),
-                   "container": meta.get("container"),
-                   "codec": meta.get("codec")}
-
-
 def locate(audio, metadata):
-    """Where the transmission starts in a recording, and how sure we are.
+    """Where the transmission starts in the received audio.
 
-    Neither generation can be read out of a bare recording on its own: Gen A's
-    grid geometry and Gen B's symbol count live in the send's metadata, which
-    a recording of a loudspeaker obviously does not carry. So the page keeps
-    the send session and hands its metadata back here. What this adds is the
-    offset, because a phone recording starts whenever Record was pressed.
+    The simulated call puts 0.12-0.9 s of silence in front, as a real
+    recording would, so the decoder has to find the start before it reads.
+    Neither generation is self-describing on the wire; the geometry comes
+    from the send's metadata.
     """
     if metadata.get("generation") == "A":
         import tel_decoder
         start = int(tel_decoder.pilot_align(audio, metadata["tel"]))
         frames = metadata["columns"] * metadata["channels"] + metadata["tel"]["preamble_frames"]
         end = start + frames * metadata["tel"]["frame_samples"]
-        return {"offset": start, "score": None, "truncated": bool(end > len(audio))}
+        return {"offset": start, "truncated": bool(end > len(audio))}
 
-    from voip import sync as voip_sync
     import fsk_codec as fsk
-    located = voip_sync.find_preamble(audio)
+    start = int(fsk.find_preamble(audio))
     frames = len(fsk.PREAMBLE) + metadata["fsk"]["n_symbols"]
-    end = located.offset + frames * fsk.SYMBOL_SAMPLES
-    return {"offset": int(located.offset), "score": round(float(located.score), 4),
-            "found": bool(located.found), "truncated": bool(end > len(audio))}
-
-
-def run_inspect(audio, metadata=None):
-    stats = wf.global_stats(audio, SAMPLE_RATE)
-    if metadata is None:
-        return {
-            "found": False,
-            "message": ("Loaded. Choose which transmission this is a recording "
-                        "of, below, so its settings can be used to rebuild it."),
-            "stats": stats,
-        }
-
-    located = locate(audio, metadata)
-    if located.get("found") is False:
-        message = ("No transmission preamble was found in this audio. Either it "
-                   "is not a recording of this call, or Record was started too "
-                   "late.")
-    elif located["truncated"]:
-        message = ("Found, but the recording stops before the transmission ends. "
-                   "The tail of the picture will be missing.")
-    else:
-        message = "Found. Rebuild it whenever you are ready."
-
-    return {
-        "found": located.get("found", True),
-        "generation": metadata.get("generation"),
-        "offset_seconds": round(located["offset"] / SAMPLE_RATE, 3),
-        "preamble_score": located["score"],
-        "truncated": located["truncated"],
-        "message": message,
-        "stats": stats,
-    }
+    end = start + frames * fsk.SYMBOL_SAMPLES
+    return {"offset": start, "truncated": bool(end > len(audio))}
 
 
 def run_receive(audio, metadata, locked=False, caller=None, receiver=None,
                 pin=None, sent_array=None):
     if metadata is None:
-        raise ValueError("Choose which transmission this audio is a recording of.")
+        raise ValueError("That transmission has expired. Send it again.")
     if locked:
         validate_credentials(caller, receiver, pin)
 

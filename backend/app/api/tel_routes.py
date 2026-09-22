@@ -1,6 +1,10 @@
 """Endpoints for the voice-call page. Everything lives under /api/tel so the
 original /api routes stay exactly as the Send and Receive pages expect.
 
+The call is simulated, never placed: /call runs the transmission through
+channel_sim (GSM 06.10, packet loss, a wandering level, noise) and /receive
+rebuilds the picture from either end of it.
+
 Two generations ship here, A and B. Generation C (WebP + Reed-Solomon) was cut: a byte-exact file transfer has no graded loss to measure or learn from. It is in the git history."""
 
 from typing import Optional
@@ -11,11 +15,11 @@ from pydantic import BaseModel, Field
 
 from app.services import tel_pipeline as tel
 from app.storage import session_store
-from app.config import MAX_AUDIO_UPLOAD_BYTES, MAX_UPLOAD_BYTES
+from app.config import MAX_UPLOAD_BYTES
 
 router = APIRouter(prefix="/api/tel")
 
-AUDIO_KINDS = {"tel-send", "tel-call", "tel-upload"}
+AUDIO_KINDS = {"tel-send", "tel-call"}
 
 
 class SendBody(BaseModel):
@@ -42,34 +46,12 @@ class CallBody(BaseModel):
 
 class ReceiveBody(BaseModel):
     session_id: str
-    # which transmission this audio is a recording of. A recording carries no
-    # header, so its geometry has to come from the send session.
+    # which transmission this audio came from, so its geometry is known
     reference_id: Optional[str] = None
     security_enabled: bool = False
     caller: Optional[str] = None
     receiver: Optional[str] = None
     pin: Optional[str] = None
-
-
-class DialBody(BaseModel):
-    session_id: str
-    # a SIP address, not a phone number: this reaches the Linphone app on the
-    # phone over SIP, and never touches the PSTN
-    target: str
-    codec: Optional[str] = None
-
-
-class PlayBody(BaseModel):
-    session_id: str
-    # an output device index or a name fragment; null picks the best virtual
-    # cable on this machine
-    device: Optional[str] = None
-    lead_in: float = Field(3.0, ge=0.0, le=30.0)
-
-
-class InspectBody(BaseModel):
-    session_id: str
-    reference_id: Optional[str] = None
 
 
 def _session(session_id, kinds, missing="That transmission has expired. Send it again."):
@@ -191,43 +173,6 @@ def call(body: CallBody):
     }
 
 
-@router.post("/upload")
-async def upload(file: UploadFile = File(...)):
-    """A recording of a real call. It carries no header, so it has to be
-    matched to the send it came from before it can be rebuilt."""
-    raw = await _read_upload(file, MAX_AUDIO_UPLOAD_BYTES)
-    try:
-        audio, source = tel.read_any_audio(raw, file.filename)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
-    except Exception as exc:
-        raise HTTPException(400, f"That audio could not be read: {exc}. Supported: "
-                                 f"WAV, and .mka/.m4a/.mp4/.caf when ffmpeg is installed.")
-
-    session_id = session_store.create({
-        "kind": "tel-upload",
-        "audio": audio,
-        "sample_rate": tel.SAMPLE_RATE,
-        "wav_bytes": tel.to_wav_bytes(audio),
-    })
-    return {"session_id": session_id, **source,
-            **tel.run_inspect(audio, None)}
-
-
-@router.post("/inspect")
-def inspect(body: InspectBody):
-    session = _session(body.session_id, AUDIO_KINDS,
-                       "That audio has expired. Load it again.")
-    metadata, _ = _reference(body, session)
-    try:
-        return {"session_id": body.session_id,
-                **tel.run_inspect(session["audio"], metadata)}
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
-    except Exception as exc:
-        raise HTTPException(400, f"That audio could not be inspected: {exc}")
-
-
 @router.post("/receive")
 def receive(body: ReceiveBody):
     session = _session(body.session_id, AUDIO_KINDS,
@@ -246,109 +191,6 @@ def receive(body: ReceiveBody):
     session_store.update(body.session_id, {"recovered_png": result.pop("png")})
     return {"session_id": body.session_id,
             "image_url": f"/api/tel/recovered/{body.session_id}", **result}
-
-
-@router.get("/dial/status")
-def dial_status():
-    """Whether this server can place a call at all, and why not if it cannot."""
-    try:
-        from voip import dial
-    except ImportError as exc:
-        return {"pjsua": False, "configured": False, "identity": None,
-                "registrar": None, "message": f"The call module is unavailable: {exc}"}
-    return dial.status()
-
-
-@router.post("/dial")
-def dial(body: DialBody):
-    """Place a real SIP call and play the transmission into it.
-
-    Returns as soon as pjsua is dialling; the page polls /dial/{call_id}.
-    Credentials are read from the server's environment, never from this body.
-    """
-    session = _session(body.session_id, {"tel-send"})
-    try:
-        from voip import dial as dialer
-        from voip.config import VoipDependencyError, VoipError
-    except ImportError as exc:
-        raise HTTPException(503, f"The call module is unavailable: {exc}")
-
-    try:
-        call_id = dialer.place(session["audio"], body.target, codec=body.codec)
-    except VoipDependencyError as exc:
-        raise HTTPException(503, str(exc))
-    except VoipError as exc:
-        raise HTTPException(400, str(exc))
-    except Exception as exc:
-        raise HTTPException(500, f"The call could not be placed: {exc}")
-
-    return {"call_id": call_id, "session_id": body.session_id,
-            **(dialer.progress(call_id) or {})}
-
-
-@router.get("/dial/{call_id}")
-def dial_progress(call_id: str):
-    from voip import dial as dialer
-    found = dialer.progress(call_id)
-    if found is None:
-        raise HTTPException(404, "No such call.")
-    return {"call_id": call_id, **found}
-
-
-@router.get("/play/devices")
-def play_devices():
-    """Audio outputs, with the virtual cables marked.
-
-    This is the route that works everywhere. pjsua is not packaged for
-    Windows, so dialling from the server is macOS and Linux only; playing the
-    transmission into a softphone's microphone needs no SIP stack at all.
-    """
-    try:
-        from voip import audio_out
-    except ImportError as exc:
-        return {"ready": False, "devices": [],
-                "message": f"The playback module is unavailable: {exc}"}
-    return audio_out.status()
-
-
-@router.post("/play")
-def play(body: PlayBody):
-    """Play the transmission into a virtual cable, for a call placed by hand."""
-    session = _session(body.session_id, {"tel-send"})
-    try:
-        from voip import audio_out
-        from voip.config import VoipDependencyError, VoipError
-    except ImportError as exc:
-        raise HTTPException(503, f"The playback module is unavailable: {exc}")
-
-    try:
-        play_id = audio_out.play(session["audio"], device=body.device,
-                                 lead_in=body.lead_in)
-    except VoipDependencyError as exc:
-        raise HTTPException(503, str(exc))
-    except VoipError as exc:
-        raise HTTPException(400, str(exc))
-    except Exception as exc:
-        raise HTTPException(500, f"Playback could not start: {exc}")
-
-    return {"play_id": play_id, "session_id": body.session_id,
-            **(audio_out.progress(play_id) or {})}
-
-
-@router.get("/play/{play_id}")
-def play_progress(play_id: str):
-    from voip import audio_out
-    found = audio_out.progress(play_id)
-    if found is None:
-        raise HTTPException(404, "No such playback.")
-    return {"play_id": play_id, **found}
-
-
-@router.post("/play/stop")
-def play_stop():
-    """Cut a transmission short. The call itself is not ours to hang up."""
-    from voip import audio_out
-    return {"stopped": audio_out.stop()}
 
 
 @router.get("/audio/{session_id}")

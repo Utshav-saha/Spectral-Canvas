@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Spectral Canvas is a Signals and Systems coursework project that turns an image into audio and back again. Image rows map to frequency lanes, columns map to time frames, and brightness sets amplitude. The WAV it produces is a real, playable file, and the receiver rebuilds the picture from that audio alone. A transmission can optionally be locked with two 11-digit phone numbers and a 4–8 digit PIN. A wrong PIN doesn't raise an error. It decodes to static, and that is intended behaviour that the UI explains.
 
-Longer docs: `README.md` (running it) and `DESIGN.md` (the binding visual system) are at the root. Everything else lives in `docs/`: `BACKEND_GUIDE.md` (API contract and why the library is shaped the way it is), `FRONTEND_GUIDE.md`, `PRODUCT.md` (audiences and the planned features), `RESTORATION_PLAN.md` (channel inversion and the learned restoration step), plus the project-plan PDFs. `backend/voip/README.md` is the guide for the real-phone-call path and is the most current of them.
+Longer docs: `README.md` (running it) and `DESIGN.md` (the binding visual system) are at the root. Everything else lives in `docs/`: `BACKEND_GUIDE.md` (API contract and why the library is shaped the way it is), `FRONTEND_GUIDE.md`, `PRODUCT.md` (audiences and the planned features), `RESTORATION_PLAN.md` (channel inversion and the learned restoration step), plus the project-plan PDFs. `backend/spectral/tel/README_TELEPHONY.md` is the guide for the call path.
 
 ## Commands
 
@@ -22,7 +22,7 @@ uvicorn app.main:app --reload --port 8000     # health: /api/health, docs: /docs
 # Round-trip test (a script, not pytest, and conftest.py excludes it from collection).
 python -m tests.test_roundtrip
 
-# The pytest suite, which is the voip/ package's. Skips cleanly without ffmpeg/libgsm/pjsua/SDK.
+# The pytest suite. Skips cleanly without libgsm.
 python -m pytest tests/ -q
 
 # Text MFSK codec self-test
@@ -31,15 +31,7 @@ python spectral/text/text_codec.py
 # Telephony experiments (bare sibling imports, so run from inside tel/; channel_sim needs ffmpeg with libgsm)
 cd backend/spectral/tel
 python3 demo.py                     # image -> 16-FSK -> simulated GSM call -> image; writes tx.wav
-./run_local_call.sh tx.wav rx.wav   # real SIP loopback call; needs `brew install pjproject` (pjsua)
 python3 test_pipeline.py            # Generation A over the simulated call, with the error
-
-# Real phone call (backend/voip/, run from backend/). voip/README.md is the full guide.
-python -m voip.cli check-env                                   # run this first, always
-python -m voip.cli prepare --image cat.jpg --gen B --grid 16 --levels 4
-python -m voip.cli simulate --run latest --pjsua --decode       # SIP loopback rehearsal
-python -m voip.cli call --run latest --dial sip:you@sip.linphone.org
-python -m voip.cli decode ~/Downloads/call.mka --run latest --json
 
 # Frontend (Vite on :5173; proxies /api -> 127.0.0.1:8000)
 cd frontend
@@ -117,51 +109,34 @@ but caps out near 32x32, which is what the upscaler is for. Generation C was
 cut because a byte-exact file transfer has no loss to learn from -- the code
 is in the git history, not the tree.
 
-### The call path (`backend/voip/`, `/api/tel`, the Call page)### The call path (`backend/voip/`, `/api/tel`, the Call page)
+### The call page (`/api/tel`, the Call page)
 
-Merged from `reco_deco`. This is the only part of the project that places a
-**real** phone call; everything else either writes a file or simulates the
-channel offline. `backend/voip/README.md` is the guide, and it is detailed -
-read it before touching this.
+Nothing here places a **real** call. That was built once (`backend/voip/`: a
+pjsua dialler, a softphone-playback route, ffmpeg transcoding of Linphone's
+Matroska recordings, its own CLI and test suite) and removed on
+`remove_call` - too much setup for the coursework, and `channel_sim` already
+exercises the same codec. It is in the git history if it is ever wanted back.
 
-- `backend/voip/` is a standalone package with its own CLI (`python -m
-  voip.cli`), its own pytest suite under `backend/tests/test_voip_*.py`, and
-  its own `runs/` scratch directory. It reimplements **none** of the modem:
-  `spectral/tel/fsk_codec.py` stays the ground truth and is imported unchanged
-  through `voip/_tel.py`, which is the same `sys.path` shim as
-  `spectral/tel/__init__.py`. Both are idempotent and load the same module
-  objects.
-- What it adds around the modem is the four things a real recording needs that
-  an in-memory array does not: whole-file preamble search that also returns its
-  score (`sync.py`), decision margins kept rather than discarded (`dsp.py`),
-  short-recording detection instead of confident garbage (`framing.py`), and
-  ffmpeg transcoding, because Linphone records Matroska (`audio_io.py`).
 - `app/api/tel_routes.py` + `app/services/tel_pipeline.py` serve the Call page
   under **`/api/tel`**, deliberately namespaced so the Send and Receive
-  contract is untouched: `info`, `stage`, `plan/{id}`, `send`, `call`,
-  `inspect`, `receive`, `audio/{id}`, `waveform/{id}`, `sent/{id}`,
-  `recovered/{id}`. The `call` endpoint is the **offline** simulator; a real
-  call goes through the CLI.
+  contract is untouched: `info`, `stage`, `plan`, `send`, `call`, `receive`,
+  `audio/{id}`, `waveform/{id}`, `sent/{id}`, `recovered/{id}`. `call` runs
+  `spectral/tel/channel_sim.py` (GSM 06.10, packet loss, a wandering level,
+  noise and random leading silence) over the transmission.
+- `receive` rebuilds from either end, `rx.wav` or `tx.wav`, and scores it
+  against the activation actually transmitted. Neither generation is
+  self-describing on the wire, so the geometry comes from the send session via
+  `reference_id`; `tel_pipeline.locate()` finds the start (pilot alignment for
+  Gen A, `fsk_codec.find_preamble` for Gen B, which covers the simulator's
+  0.12-0.9 s of leading silence).
 - `app/main.py` mounts that router inside a `try/except ImportError`, so a
-  machine without `reedsolo` still starts the rest of the app and `/api/tel/*`
-  answers 503 with what to install. Keep that guard.
-- `MAX_AUDIO_UPLOAD_BYTES` (32 MB) is separate from `MAX_UPLOAD_BYTES` (12 MB),
-  because a recorded call is much bigger than a picture.
+  machine missing the call dependencies still starts the rest of the app and
+  `/api/tel/*` answers 503 with what to install. Keep that guard.
 - Frontend: `pages/Call.jsx` + `Call.css`, `api/telClient.js`, and a `/call`
-  route. `telClient.js` is kept apart from `client.js` on purpose.
-- **Placing a real call**: `voip/dial.py` + `POST /api/tel/dial`. It drives
-  **pjsua**, not liblinphone: the SDK's Python bindings are on no package index
-  and have to be compiled from source, and they are not needed, because
-  `sip.linphone.org` is an ordinary SIP registrar and the Linphone app answers
-  any SIP client. SIP-to-SIP, so no PSTN and no paid trunk. Credentials come
-  from `VOIP_SIP_IDENTITY` / `VOIP_SIP_PASSWORD` in the server's environment
-  and **never** from a request body. One call at a time, behind a lock.
-  `voip/call/session.py` is the abandoned SDK route and has never run.
-- What the dial endpoint cannot do is bring the audio back: pjsua records its
-  own inbound leg, which is the phone's muted microphone, not the tones the
-  phone received. The recording is made on the phone with Linphone's in-call
-  Record button and uploaded to `POST /api/tel/upload`, which matches it to
-  the send session for the geometry.
+  route. `telClient.js` is kept apart from `client.js` on purpose. One flow:
+  picture, encode, simulated call, rebuilt.
+- `tests/test_tel_simulation.py` walks that whole path over HTTP for both
+  generations; the GSM tests skip without libgsm.
 
 ### The experiments bench (`/experiments`, `/api/channel`)
 

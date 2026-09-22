@@ -4,7 +4,7 @@ Simulate what a SIP call does to your audio, offline.
 Stages, in the order the real thing applies them:
 
   1. random leading silence        (you never know when recording started)
-  2. GSM 06.10 encode/decode       (the codec pjsua will negotiate)
+  2. GSM 06.10 encode/decode       (what a voice line negotiates)
   3. packet loss + concealment     (lost 20 ms frame -> previous one repeated)
   4. AGC / level change            (unknown, slowly varying gain)
   5. background noise floor        (comfort noise, room, ADC)

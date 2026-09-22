@@ -23,40 +23,30 @@ a threshold.
 
 ---
 
-## Answer on VoIP services
+## No VoIP service, and no real call
 
-**You do not need one.** `run_local_call.sh` runs two `pjsua` instances on your
-MacBook calling each other over loopback — real SIP signalling, real RTP, real
-GSM encoding, real jitter buffer, no account, no provider, free forever.
-
-```
-brew install pjproject          # pjproject, NOT pjsip
-which pjsua                     # empty? build from source, see the script header
-./run_local_call.sh tx.wav rx.wav
-```
-
-**Verify which codec actually got used, every run.** If GSM was not compiled
-into your build, pjsua silently negotiates PCMU (G.711) instead. G.711 does no
-LPC modelling, so it is nearly transparent — your images would decode perfectly
-and the result would be meaningless.
+The call is **simulated**, by `channel_sim.py`: GSM 06.10 encode/decode, lost
+20 ms packets, a wandering level, a noise floor and random leading silence.
+That is the whole channel this project measures, and it needs no account, no
+provider and no phone.
 
 ```
-grep -iE "sdp|codec|GSM|PCMU" /tmp/pjsua_caller.log | head -20
+python3 demo.py                     # image -> FSK -> simulated call -> image
 ```
 
-Other macOS specifics: zsh aborts on an unquoted `*`, so `--dis-codec='*'` must
-stay quoted; `--null-audio` is what keeps macOS from prompting for microphone
-access, so don't drop it; and if pjsua fights you, run it in a Debian container
-instead — loopback between two processes in one container behaves identically.
+**Check the codec is really there.** `channel_sim` needs `toast` (libgsm) or an
+ffmpeg built with it; without one there is no GSM stage, and a clean decode
+proves nothing about surviving a voice line.
 
-If you want a real network hop, free SIP accounts exist (sip.linphone.org,
-OnSIP). **Twilio is not free** — the trial is time-limited credit, and it
-injects a spoken announcement at call start that will land on top of your
-preamble. Skip it unless you specifically need PSTN termination to a real
-mobile, and even then only at the end for one confirmation run.
+```
+brew install libgsm
+```
 
-Swap the codec with `CODEC=iLBC ./run_local_call.sh` etc. to compare — that
-table is a good result for your writeup.
+Placing a **real** SIP call was built once and removed: `backend/voip/`, a
+pjsua dialler and a Linphone recording path. It was more setup than the
+coursework needed - two SIP accounts, a phone that records its own call, and
+codec negotiation to verify every run - and the simulator exercises the same
+codec. It is in the git history if it is ever wanted back.
 
 ---
 

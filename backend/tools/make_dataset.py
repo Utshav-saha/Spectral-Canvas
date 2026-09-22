@@ -103,21 +103,25 @@ def sample_chain(rng):
 # the pipeline
 # --------------------------------------------------------------------------
 
-def encode_once(path):
-    """Encoding is the slow step; degrading is cheap. Done once per image.
+from PIL import Image
 
-    Returns the activation the encoder ACTUALLY transmitted. That is the
-    ground truth - not a separate resize of the source image, which would
-    differ from it (process_image has its own working size, resampling and
-    gray-level quantisation) and teach the model the wrong target.
-    """
+TRANSFORMS = [None,
+              Image.Transpose.FLIP_LEFT_RIGHT,
+              Image.Transpose.FLIP_TOP_BOTTOM,
+              Image.Transpose.ROTATE_180]
+
+
+def encode_once(image):
+    """Takes a PIL image now, so the caller can transform it first."""
     audio, metadata, activation = encode(
-        Image.open(path).convert("RGB"),
+        image,
         target_width=COLS, target_height=ROWS,
         sample_rate=SAMPLE_RATE, frame_duration=FRAME_DURATION,
         gray_levels=GRAY_LEVELS, mode=MODE, security_enabled=False,
     )
     return audio, metadata, np.asarray(activation, dtype=np.float32)
+
+
 
 
 def degraded_activation(audio, metadata, chain):
@@ -164,25 +168,24 @@ def _init_worker(variants):
 
 
 def process_one(path_str):
-    """All variants for one source image. Must be a top-level function so
-    multiprocessing can pickle it.
-
-    Returns (list_of_results, error_message_or_None). Never raises - one bad
-    image must not kill a multi-hour run.
-    """
     path = Path(path_str)
     try:
         rng = np.random.default_rng(seed_for(path))
-        audio, metadata, clean = encode_once(path)
-        clean16 = clean.astype(np.float16)
-
+        source = Image.open(path).convert("RGB")
         results = []
-        for v in range(_VARIANTS):
-            chain = sample_chain(rng)
-            x = degraded_activation(audio, metadata, chain).astype(np.float16)
-            if x.shape != clean16.shape:
-                raise ValueError(f"shape mismatch: degraded {x.shape} vs clean {clean16.shape}")
-            results.append((x, clean16, {"source": path.name, "variant": v, "chain": chain}))
+
+        for t_index, transform in enumerate(TRANSFORMS):
+            image = source if transform is None else source.transpose(transform)
+            audio, metadata, clean = encode_once(image)
+            clean16 = clean.astype(np.float16)
+
+            for v in range(_VARIANTS):
+                chain = sample_chain(rng)
+                x = degraded_activation(audio, metadata, chain).astype(np.float16)
+                if x.shape != clean16.shape:
+                    raise ValueError(f"shape mismatch: {x.shape} vs {clean16.shape}")
+                results.append((x, clean16, {"source": path.name, "transform": t_index,
+                                             "variant": v, "chain": chain}))
         return results, None
 
     except Exception as exc:
