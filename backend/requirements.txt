@@ -6,6 +6,12 @@ scipy==1.15.0
 pillow==11.1.0
 pydantic==2.10.4
 
+# Optional: only the Call page's "Enhance with the model" button needs this.
+# Everything else - encoding, decoding, the channel bench, the LTI inverse -
+# runs without it, and the button says so when it is missing.
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# torch
+
 # tests only
 pytest==9.1.1
 httpx==0.28.1

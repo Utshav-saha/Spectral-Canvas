@@ -63,6 +63,12 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   max-width: none;
 }
+/* sent + rebuilt + the model's guess: three across, so they compare at a
+   glance rather than the third wrapping onto its own row */
+.call-compare.is-trio {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-width: none;
+}
 
 .call-fig { margin: 0; }
 .call-fig figcaption {
@@ -93,4 +99,32 @@
 @media (max-width: 620px) {
   .call-pair { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .call-compare.is-pair { grid-template-columns: minmax(0, 1fr); }
+  .call-compare.is-trio { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---- the restoration model --------------------------------------------- */
+/* Set apart from the rebuilt picture on purpose: what it adds was guessed,
+   not received, and the page should never let those two blur together. */
+
+.call-model {
+  margin-top: 18px;
+  padding: 14px 15px 15px;
+  border-radius: var(--r-md);
+  background: var(--panel);
+  box-shadow: var(--lift-1);
+  display: grid;
+  gap: 10px;
+}
+
+.call-model-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.call-model-head b { color: var(--ink); }
+
+.call-model-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }

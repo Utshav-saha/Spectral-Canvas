@@ -14,7 +14,7 @@ import './Experiments.css'
 
 const STAGES = ['Picture', 'Chain', 'Run', 'Measured']
 
-const FALLBACK = { effects: [], presets: [], max_effects: 6 }
+const FALLBACK = { effects: [], presets: [], max_effects: 6, inversion: [] }
 
 function RowError({ values, rows }) {
   /* Mean absolute pixel error per image row, drawn top row first so it lines
@@ -43,6 +43,86 @@ function RowError({ values, rows }) {
   )
 }
 
+/* What the LTI inverse did, in numbers. The interesting column is the middle
+   one: an effect that has an inverse drops a lot, one that does not barely
+   moves, and that gap is the argument the page is making. */
+function Inverse({ result }) {
+  const u = result.undone
+  const before = result.metrics?.mae
+  const after = u.metrics?.mae
+  const gained = before != null && after != null
+    ? Math.max(0, Math.round((1 - after / before) * 100)) : null
+
+  return (
+    <div className="exp-inverse">
+      <dl className="call-readout">
+        <dt>MAE damaged</dt><dd>{before ?? '—'}</dd>
+        <dt>MAE after the inverse</dt><dd>{after ?? '—'}</dd>
+        <dt>Error removed</dt><dd>{gained == null ? '—' : `${gained}%`}</dd>
+        <dt>Regularisation</dt><dd>eps {u.epsilon}</dd>
+      </dl>
+      <ul className="exp-verdicts">
+        {u.undone.map((id) => (
+          <li key={id}><span className="led is-open" aria-hidden="true" />
+            <b>{id}</b> undone &mdash; it was LTI, so dividing by H(f) brought it back
+          </li>
+        ))}
+        {u.attempted.map((id) => (
+          <li key={id}><span className="led is-signal" aria-hidden="true" />
+            <b>{id}</b> partly undone &mdash; the shoulders came back, the rows
+            inside the stop band did not
+          </li>
+        ))}
+        {u.skipped.map((id) => (
+          <li key={id}><span className="led is-locked" aria-hidden="true" />
+            <b>{id}</b> left alone &mdash; it has no inverse, so nothing was faked
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/* The standing answer, independent of any run: which effects the analytic
+   stage can undo and which need the model. Served from the backend so this
+   table and the code that does the undoing cannot disagree. */
+function InverseTable({ rows }) {
+  if (!rows?.length) return null
+  return (
+    <div className="module exp-table">
+      <div className="module-head"><h2>What an LTI inverse can undo</h2></div>
+      <div className="module-body">
+        <table className="exp-lti">
+          <thead>
+            <tr><th>Effect</th><th>Inverse?</th><th>Why</th></tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="mono">{r.id}</td>
+                <td>
+                  <span className={`led ${r.invertible ? 'is-open' : 'is-locked'}`}
+                        aria-hidden="true" />
+                  {r.invertible ? 'yes' : 'no'}
+                </td>
+                <td>{r.why}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="field-note">
+          The &ldquo;no&rdquo; rows are exactly the jobs a learned model would have
+          to do: clipping is nonlinear, a stop-band annihilates rows rather than
+          attenuating them, aliasing folds two rows into one sum, and noise was
+          added rather than convolved. This project ships a model for Track 2
+          only &mdash; upscaling and dequantising on the Call page &mdash; so on
+          this page the red rows stay broken, honestly.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function Metric({ label, value, unit }) {
   return (
     <>
@@ -62,6 +142,9 @@ export default function Experiments() {
 
   const [chain, setChain] = useState([])
   const [running, setRunning] = useState(false)
+  /* Run the LTI inverse over the damaged audio as well. On by default: the
+     whole point of the page is which effects that division can undo. */
+  const [undo, setUndo] = useState(true)
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const dropRef = useRef(null)
@@ -110,7 +193,7 @@ export default function Experiments() {
   const run = async () => {
     setError(''); setRunning(true)
     try {
-      setResult(await api.channel({ session_id: tx.session_id, effects: chain }))
+      setResult(await api.channel({ session_id: tx.session_id, effects: chain, undo }))
     } catch (e) {
       setError(e.message)
     } finally {
@@ -329,6 +412,16 @@ export default function Experiments() {
             </div>
 
             <div className="module-foot">
+              <label className="switch">
+                <input type="checkbox" checked={undo}
+                       onChange={(e) => setUndo(e.target.checked)} />
+                <span className="switch-box" aria-hidden="true" />
+                <span className="switch-text">Also try to undo it</span>
+              </label>
+              <p className="field-note">
+                Divides the spectrum back by H(f), the LTI inverse. Effects with
+                no inverse are left alone rather than faked.
+              </p>
               <button type="button" className="btn btn-primary sim-send"
                       onClick={run} disabled={!tx || !chain.length || running}>
                 {running ? 'Running…' : 'Run the channel'}
@@ -338,6 +431,8 @@ export default function Experiments() {
             </div>
           </aside>
         </div>
+
+        <InverseTable rows={cat.inversion} />
 
         {/* -------------------------- result -------------------------- */}
         {result && (
@@ -359,8 +454,17 @@ export default function Experiments() {
                 <figcaption>Through the channel</figcaption>
               </figure>
 
+              {result.undone && (
+                <figure className="exp-fig">
+                  <img src={result.undone.image_url} alt="After the LTI inverse" />
+                  <figcaption>After the inverse</figcaption>
+                </figure>
+              )}
+
               <RowError values={result.row_error} rows={result.rows} />
             </div>
+
+            {result.undone && <Inverse result={result} />}
 
             <div className="exp-foot">
               <dl className="call-readout">

@@ -268,6 +268,9 @@ def run_receive(audio, metadata, locked=False, caller=None, receiver=None,
         "offset_seconds": round(located["offset"] / SAMPLE_RATE, 3),
         "truncated": located["truncated"],
         "png": _png(image_array),
+        # kept so the model can be run on it later, at its real size: _png
+        # blows it up to ~320 px for display, which is not what to feed a model
+        "array": image_array,
     }
 
     # Against what was actually put on the wire, so the number is the channel's
@@ -284,6 +287,38 @@ def run_receive(audio, metadata, locked=False, caller=None, receiver=None,
             "exact_fraction": round(exact, 4),
         }
     return result
+
+
+def model_status():
+    """Whether the learned upscaler can run here, and why not if it cannot."""
+    from spectral.restore import upscaler
+    return upscaler.status()
+
+
+def run_enhance(image_array):
+    """Track 2's missing detail, guessed back by the model.
+
+    Generation B arrives bit-exact, so nothing here is repairing transmission
+    damage. What it undoes is the shrinking and the 4-level quantising done
+    *before* the call, which are the two things a voice line has no airtime
+    for. See spectral/restore/upscaler.py.
+    """
+    from spectral.restore import upscaler
+
+    if not upscaler.available():
+        raise ValueError(upscaler.status()["message"])
+
+    array = np.asarray(image_array)
+    if array.size == 0:
+        raise ValueError("There is no rebuilt picture to enhance yet.")
+
+    enhanced = upscaler.enhance(array)
+    return {
+        "png": _png(enhanced),
+        "size": int(enhanced.shape[0]),
+        "from_size": int(array.shape[0]),
+        "compare": upscaler.compare(array, enhanced),
+    }
 
 
 def waveform_payload(audio, buckets):

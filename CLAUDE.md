@@ -138,6 +138,56 @@ exercises the same codec. It is in the git history if it is ever wanted back.
 - `tests/test_tel_simulation.py` walks that whole path over HTTP for both
   generations; the GSM tests skip without libgsm.
 
+### Undoing the channel (`spectral/channel/inverse.py`)
+
+The other half of `effects.py`, and the Signals and Systems core: if the
+channel was LTI then `Y(f) = H(f)X(f)`, so dividing by H(f) gets X back.
+Division is regularised as `H / (H^2 + eps)`, which is what stops a near-zero
+H(f) from amplifying noise; `EPSILON` is 1e-5, chosen by measuring both ways
+(1e-6 inverts a clean low-pass better, 1e-5 wins once there is noise).
+
+- `undo_chain` walks the chain **in reverse** and reports three outcomes,
+  which are deliberately not merged: `undone` (a real inverse ran),
+  `attempted` (band-stop: the shoulders come back, the killed rows do not)
+  and `skipped` (no inverse exists, so nothing was done). `INVERTIBLE`/`WHY`
+  is the single source of that table; `/api/channel/effects` serves it as
+  `inversion` and the Experiments page renders it, so the page cannot claim
+  something the code does not do.
+- Measured end to end at 64x64, mean pixel error: echo 37.98 -> **0.0000**
+  (exact), low-pass 80.90 -> 15.17, band-stop 50.05 -> 29.68 (better, still
+  broken), clipping unchanged by definition. `tests/test_inverse.py` pins that
+  ordering.
+- `POST /api/channel` takes `undo` and `epsilon`, and returns an `undone`
+  block with its own image, metrics and row profile beside the damaged one.
+- `undo_gain` must be told the peak the encoder aimed for (0.8 open, 0.5
+  locked). Scaling to anything else costs ~0.08 of mean activation error,
+  because the decoder divides by the gain in the metadata.
+
+### The restoration model (`spectral/restore/upscaler.py`, `/api/tel/enhance`)
+
+`tools/upscaler_best.pt` is a U-Net (3 in, 3 out, base 32, three levels plus
+skips). It is **Track 2 only**: upscaling and dequantising a Generation B
+picture, 32x32 at a few levels up to 128x128. The Call page's "Enhance with
+the model" button is the only caller, and the result is shown as a third
+picture captioned as a guess, never merged into the rebuilt one.
+
+- Nothing recorded how the checkpoint was trained, so the conventions were
+  **measured** by running every plausible combination against known pairs:
+  input is RGB 0-1 resized to 128 with **bicubic**, the output is a
+  **residual** to add to that input, and the activation is **ReLU**. Reading
+  the output as the picture scores 0.187 mean error; adding it scores 0.0735,
+  against 0.0952 for plain bicubic. `load_state_dict` is strict, so the
+  architecture in the file and the checkpoint cannot silently drift.
+- **It does not do Track 1.** Measured on Track 1 activations it made every
+  case worse, including clean input (0.0000 -> 0.0907), which is what using a
+  model outside its training domain looks like. Track 1 damage is handled by
+  the LTI inverse above; clipping, dead rows and aliasing stay unfixed, and
+  the UI says so. A Track 1 model would need the 5-channel input that
+  `docs/RESTORATION_PLAN.md` Phase 3 describes - this checkpoint has 3.
+- torch is **optional** and not in `requirements.txt` proper. `upscaler.status()`
+  drives the button, `/api/tel/info` carries it as `model`, and the endpoint
+  answers 503 with what to install. `tests/test_upscaler.py` skips without it.
+
 ### The experiments bench (`/experiments`, `/api/channel`)
 
 `spectral/channel/effects.py` sat unused since the start; `app/services/

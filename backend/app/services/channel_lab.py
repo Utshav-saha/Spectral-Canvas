@@ -24,7 +24,7 @@ model is for. Keeping that boundary visible is the point of this page.
 
 import numpy as np
 
-from spectral.channel import effects
+from spectral.channel import effects, inverse
 from spectral.analysis import waveform as wf
 from app.services import pipeline
 
@@ -123,9 +123,16 @@ BY_ID = {entry["id"]: entry for entry in CATALOGUE}
 
 
 def catalogue():
+    """What the page offers, plus what an LTI inverse can and cannot undo.
+
+    `inversion` is served from spectral/channel/inverse.py, so the table on
+    the page and the code that does the undoing can never disagree.
+    """
     return {"effects": CATALOGUE,
             "presets": PRESETS,
-            "max_effects": MAX_EFFECTS}
+            "max_effects": MAX_EFFECTS,
+            "inversion": inverse.report(),
+            "default_epsilon": inverse.EPSILON}
 
 
 # Ready-made chains, so the page opens on something worth looking at rather
@@ -241,8 +248,26 @@ def row_profile(activation_before, activation_after):
     return [round(float(v), 4) for v in np.mean(np.abs(after - before), axis=1)]
 
 
-def run_channel(session, chain, caller=None, receiver=None, pin=None):
-    """Clean transmission -> degraded audio -> decode -> what it cost."""
+def _same_length(audio, reference):
+    """apply_chain can change the length (resampling rounds), and the decoder
+    slices by frame, so bring it back to exactly what was sent."""
+    if len(audio) == len(reference):
+        return audio
+    fixed = np.zeros_like(reference)
+    usable = min(len(fixed), len(audio))
+    fixed[:usable] = audio[:usable]
+    return fixed
+
+
+def run_channel(session, chain, caller=None, receiver=None, pin=None,
+                undo=False, epsilon=None):
+    """Clean transmission -> degraded audio -> decode -> what it cost.
+
+    With `undo`, the same degraded audio also goes through the LTI inverse
+    (spectral/channel/inverse.py) and is decoded a second time, so the page
+    can show damaged and repaired side by side. Effects with no inverse are
+    left alone, which is the honest half of the demonstration.
+    """
     metadata = session.get("metadata")
     if not metadata:
         raise ValueError("That transmission has no header to rebuild from.")
@@ -256,19 +281,13 @@ def run_channel(session, chain, caller=None, receiver=None, pin=None):
     clean = np.asarray(session["audio"], dtype=np.float64)
     degraded = effects.apply_chain(clean, sample_rate, chain)
 
-    # apply_chain can change the length (resample rounds), and the decoder
-    # slices by frame, so bring it back to exactly what was sent.
-    if len(degraded) != len(clean):
-        fixed = np.zeros_like(clean)
-        usable = min(len(fixed), len(degraded))
-        fixed[:usable] = degraded[:usable]
-        degraded = fixed
+    degraded = _same_length(degraded, clean)
 
     decoded = pipeline.run_decode(
         degraded, metadata, caller=caller, receiver=receiver, pin=pin,
         source_activation=session.get("activation"))
 
-    return {
+    result = {
         "audio": degraded,
         "chain": chain,
         "description": describe(chain),
@@ -279,3 +298,23 @@ def run_channel(session, chain, caller=None, receiver=None, pin=None):
         "clean_stats": wf.global_stats(clean, sample_rate),
         "sample_rate": sample_rate,
     }
+
+    if undo:
+        eps = inverse.EPSILON if epsilon is None else float(epsilon)
+        repaired, what = inverse.undo_chain(degraded, sample_rate, chain,
+                                            epsilon=eps)
+        repaired = _same_length(repaired, clean)
+        redecoded = pipeline.run_decode(
+            repaired, metadata, caller=caller, receiver=receiver, pin=pin,
+            source_activation=session.get("activation"))
+        result["undone"] = {
+            "audio": repaired,
+            "png": redecoded["png"],
+            "image_array": redecoded["image_array"],
+            "metrics": redecoded["metrics"],
+            "stats": wf.global_stats(repaired, sample_rate),
+            "epsilon": eps,
+            **what,
+        }
+
+    return result

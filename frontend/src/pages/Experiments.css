@@ -152,3 +152,54 @@
   .exp-foot { grid-template-columns: 1fr; }
   .exp-chainline { white-space: normal; }
 }
+
+/* ---- the LTI inverse ---------------------------------------------------- */
+
+.exp-inverse {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.exp-verdicts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+.exp-verdicts li { display: flex; gap: 9px; align-items: baseline; }
+.exp-verdicts b { color: var(--ink); font-family: var(--mono); }
+
+.exp-table { margin-top: 24px; }
+
+.exp-lti {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+.exp-lti th {
+  text-align: left;
+  padding: 0 12px 8px 0;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
+.exp-lti td {
+  padding: 8px 12px 8px 0;
+  border-top: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+.exp-lti td .led { margin-right: 7px; }
+.exp-lti tbody tr td:nth-child(2) { white-space: nowrap; }
+
+@media (max-width: 620px) {
+  .exp-lti, .exp-lti tbody, .exp-lti tr, .exp-lti td { display: block; width: 100%; }
+  .exp-lti thead { display: none; }
+  .exp-lti tr { border-top: 1px solid var(--line-soft); padding: 10px 0; }
+  .exp-lti td { border: 0; padding: 2px 0; }
+}

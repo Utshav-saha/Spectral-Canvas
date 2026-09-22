@@ -54,6 +54,10 @@ class ReceiveBody(BaseModel):
     pin: Optional[str] = None
 
 
+class EnhanceBody(BaseModel):
+    session_id: str
+
+
 def _session(session_id, kinds, missing="That transmission has expired. Send it again."):
     session = session_store.get(session_id)
     if not session or session.get("kind") not in kinds:
@@ -80,7 +84,8 @@ async def _read_upload(file, limit=MAX_UPLOAD_BYTES):
 
 @router.get("/info")
 def info():
-    return tel.info()
+    # `model` tells the page whether to offer the Enhance button at all
+    return {**tel.info(), "model": tel.model_status()}
 
 
 @router.post("/stage")
@@ -188,9 +193,43 @@ def receive(body: ReceiveBody):
     except Exception as exc:
         raise HTTPException(500, f"Rebuilding failed: {exc}")
 
-    session_store.update(body.session_id, {"recovered_png": result.pop("png")})
+    session_store.update(body.session_id, {"recovered_png": result.pop("png"),
+                                           "recovered_array": result.pop("array")})
     return {"session_id": body.session_id,
-            "image_url": f"/api/tel/recovered/{body.session_id}", **result}
+            "image_url": f"/api/tel/recovered/{body.session_id}",
+            "enhanced_url": None, **result}
+
+
+@router.post("/enhance")
+def enhance(body: EnhanceBody):
+    """Run the learned upscaler over the rebuilt picture (Track 2).
+
+    Separate from /receive on purpose: rebuilding is the transmission, this is
+    a guess made afterwards, and the page shows them apart so nobody mistakes
+    invented detail for received detail.
+    """
+    session = session_store.get(body.session_id)
+    if not session or "recovered_array" not in session:
+        raise HTTPException(404, "Nothing has been rebuilt from this audio yet.")
+
+    try:
+        result = tel.run_enhance(session["recovered_array"])
+    except ValueError as exc:
+        raise HTTPException(503, str(exc))
+    except Exception as exc:
+        raise HTTPException(500, f"The model could not run: {exc}")
+
+    session_store.update(body.session_id, {"enhanced_png": result.pop("png")})
+    return {"session_id": body.session_id,
+            "image_url": f"/api/tel/enhanced/{body.session_id}", **result}
+
+
+@router.get("/enhanced/{session_id}")
+def enhanced(session_id: str):
+    session = session_store.get(session_id)
+    if not session or "enhanced_png" not in session:
+        raise HTTPException(404, "Nothing has been enhanced for this audio yet.")
+    return Response(content=session["enhanced_png"], media_type="image/png")
 
 
 @router.get("/audio/{session_id}")

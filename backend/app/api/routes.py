@@ -238,7 +238,10 @@ def channel_endpoint(body: dict):
         result = channel_lab.run_channel(
             session, body.get("effects") or [],
             caller=body.get("caller"), receiver=body.get("receiver"),
-            pin=body.get("pin"))
+            pin=body.get("pin"),
+            # "undo": run the LTI inverse over the damaged audio as well, so
+            # the page can show what division by H(f) does and does not fix
+            undo=bool(body.get("undo")), epsilon=body.get("epsilon"))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:
@@ -265,6 +268,30 @@ def channel_endpoint(body: dict):
         "recovered_png": result["png"],
     })
 
+    undone = None
+    if result.get("undone"):
+        fixed = result["undone"]
+        undo_id = session_store.create({
+            "kind": "channel",
+            "audio": fixed["audio"],
+            "metadata": session["metadata"],
+            "sample_rate": result["sample_rate"],
+            "recovered_png": fixed["png"],
+        })
+        undone = {
+            "run_id": undo_id,
+            "image_url": f"/api/recovered/{undo_id}",
+            "audio_url": f"/api/channel/audio/{undo_id}",
+            "metrics": fixed["metrics"],
+            "row_error": channel_lab.row_profile(baseline, fixed["image_array"]),
+            "stats": fixed["stats"],
+            "epsilon": fixed["epsilon"],
+            # kept apart: a real inverse, a partial one, and none at all
+            "undone": fixed["undone"],
+            "attempted": fixed["attempted"],
+            "skipped": fixed["skipped"],
+        }
+
     return {
         "run_id": run_id,
         "session_id": body["session_id"],
@@ -279,6 +306,7 @@ def channel_endpoint(body: dict):
         "row_error": channel_lab.row_profile(baseline, result["image_array"]),
         "stats": result["stats"],
         "clean_stats": result["clean_stats"],
+        "undone": undone,
         "rows": session["metadata"]["rows"],
         "columns": session["metadata"]["columns"],
         "mode": session["metadata"].get("mode", "L"),

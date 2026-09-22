@@ -37,5 +37,10 @@ export const call = (payload) => postJson('/api/tel/call', payload)
 
 export const receive = (payload) => postJson('/api/tel/receive', payload)
 
+// The learned upscaler (Track 2). Guesses back the detail and the shades that
+// were thrown away BEFORE the call, which is a guess, not received data - so
+// it is a separate call and a separate picture on the page.
+export const enhance = (payload) => postJson('/api/tel/enhance', payload)
+
 export const waveform = async (sessionId, buckets = 2000) =>
   unwrap(await fetch(`/api/tel/waveform/${sessionId}?buckets=${buckets}`))

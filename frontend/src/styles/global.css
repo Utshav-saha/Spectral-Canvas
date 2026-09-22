@@ -285,6 +285,7 @@ select.input {
   vertical-align: 1px;
 }
 .led.is-open { background: var(--open); box-shadow: 0 0 6px rgba(168, 183, 138, 0.75), inset 0 1px 1px rgba(255, 255, 255, 0.4); }
+.led.is-signal { background: var(--signal); box-shadow: 0 0 6px rgba(127, 145, 102, 0.7), inset 0 1px 1px rgba(255, 255, 255, 0.3); }
 .led.is-locked { background: var(--oxide-hi); box-shadow: 0 0 6px rgba(166, 59, 70, 0.8), inset 0 1px 1px rgba(255, 255, 255, 0.3); }
 
 .sr-only {
