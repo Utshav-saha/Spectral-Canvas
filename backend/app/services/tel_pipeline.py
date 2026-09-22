@@ -4,13 +4,14 @@ Two generations go out over a voice line, both through `spectral/tel/
 call_track.py`:
 
     A   parallel multitone with pilot tones. Amplitude carries the pixel, so a
-        speech codec damages it - about 67% of pixels exact through simulated
+        speech codec damages it - about 75% of pixels exact through simulated
         GSM. Fast on the wire (one frame per column), so it carries the bigger
         picture. The damage is the input the restoration model is trained on.
     B   16-FSK, one tone per symbol. Which tone carries the pixel, so a codec
         cannot touch it - 100% exact - at about a tenth of the resolution.
 
-Generation C (WebP + Reed-Solomon) was cut; see spectral/tel/rejected/.
+Generation C (WebP + Reed-Solomon) was cut: a byte-exact file transfer
+has no graded loss to measure or learn from. It is in the git history.
 
 Nothing here reimplements a modem. The tel modules use bare sibling imports
 (`import fsk_codec as fsk`), so their directory goes on sys.path first.
@@ -52,7 +53,7 @@ GENERATIONS = {
                     "narrowed to 700-3000 Hz with two pilot tones. A voice "
                     "codec models each frame with eight poles and cannot hold "
                     "that many tone levels, so the picture arrives damaged - "
-                    "roughly two thirds of pixels exact. It is fast on the "
+                    "about three quarters of pixels exact. It is fast on the "
                     "wire, so it carries the most detail."),
         "sizes": [16, 24, 32, 48, 64],
         "default_size": 24,

@@ -33,16 +33,15 @@ PREVIEW_SCALE = 8
 #
 #   Gen A  parallel multitone, pixel in a tone's amplitude   -> Track 1
 #   Gen B  16-FSK raw pixels, pixel in which tone plays      -> Track 2
-#   Gen C  WebP + Reed-Solomon over the same 16-FSK modem    -> the Call page
 #
-# Track 3 was Gen A over a voice call, and was cut: a GSM codec throws away
-# exactly the amplitudes it depends on. backend/spectral/tel/rejected/README.md
-# has the measurement.
+# The Call page offers Gen A and Gen B over a real voice line. Generation C
+# (WebP + Reed-Solomon) was cut.
 #
-# Generation C is not offered here. It needs a staged upload so size and
-# quality can be re-planned without re-uploading, and it reports RS block
-# health rather than a pixel error, so it has its own endpoints under
-# /api/tel and its own page. See app/api/tel_routes.py and voip/README.md.
+# Gen A over a voice call is lossy - a GSM codec throws away exactly the
+# amplitudes it depends on - and that is now the point rather than a reason to
+# cut it: the damage is what the restoration model is trained to undo. It
+# lives on the Call page, with its own endpoints under /api/tel, because it
+# needs a staged upload and a different set of controls.
 #
 # The frontend reads this from /api/health to build its track selector, so
 # these are the only two a request can ask for.
@@ -79,11 +78,10 @@ TRACKS = {
         "more": {
             "href": "/call",
             "label": "Call page",
-            "note": ("This gives you the audio to play down a line yourself, "
-                     "at 32 x 32. To place a real call, or to send a full-"
-                     "colour picture up to 160 px over the same modem, use the "
-                     "Call page - it compresses to WebP and adds Reed-Solomon "
-                     "first."),
+            "note": ("This gives you the audio to play down a line "
+                     "yourself. To place an actual call to a phone, or to "
+                     "send the same picture the lossy way and see what a "
+                     "voice codec does to it, use the Call page."),
         },
         "sample_rate": 8000,
         "band": [700, 3200],

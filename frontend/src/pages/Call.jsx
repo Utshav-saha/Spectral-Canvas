@@ -16,7 +16,8 @@ import './Call.css'
      B  16-FSK. The pixel is in which tone plays, which a codec keeps - so it
         arrives exact, at a fraction of the resolution.
 
-   Generation C (WebP + Reed-Solomon) was cut; see spectral/tel/rejected/. */
+   Generation C (WebP + Reed-Solomon) was cut: byte-exact or nothing, so
+   there was no graded loss to measure or learn from. */
 
 const MODES = [
   { id: 'send', label: 'Send' },
@@ -32,7 +33,7 @@ const FALLBACK_GENERATIONS = [
     label: 'Generation A',
     tagline: 'Amplitude carries the pixel',
     summary:
-      'The same parallel multitone scheme the WAV track uses, narrowed to 700-3000 Hz with two pilot tones. A voice codec models each frame with eight poles and cannot hold that many tone levels, so the picture arrives damaged - roughly two thirds of pixels exact. It is fast on the wire, so it carries the most detail.',
+      'The same parallel multitone scheme the WAV track uses, narrowed to 700-3000 Hz with two pilot tones. A voice codec models each frame with eight poles and cannot hold that many tone levels, so the picture arrives damaged - about three quarters of pixels exact. It is fast on the wire, so it carries the most detail.',
     sizes: [16, 24, 32, 48, 64],
     default_size: 24,
     levels: [2, 4, 8, 16],

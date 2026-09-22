@@ -6,8 +6,9 @@ fsk_codec`. Putting this directory on sys.path keeps that working while also
 letting the app say `from spectral.tel import call_track`. The same trick is
 used in spectral/decoder/image_reconstructor.py.
 
-Only fsk_codec, image_fsk, channel_sim and call_track ship. The parallel
-multitone attempt is quarantined in rejected/ - see rejected/README.md.
+call_track.py is the app-facing entry point and covers both generations:
+Generation A through tel_encoder/tel_decoder, Generation B through
+image_fsk/fsk_codec.
 """
 
 import os

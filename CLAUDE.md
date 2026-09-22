@@ -99,8 +99,9 @@ file with no `track` field predates the split and is Track 1.
   alignment an RTP path cannot give. `CALL_MAX_SECONDS` (5 min) caps how much
   call time one request may ask for, which also keeps the 8 kHz WAV under the
   upload limit.
-- **Track 3 was cut.** It was Track 1's scheme sent over a call, and it sits in
-  `spectral/tel/rejected/`. Nothing imports it. Don't wire it back in.
+- **Over a call**, both generations are offered on the Call page. This was
+  once cut as "Track 3" and brought back deliberately: Generation A's loss is
+  the restoration model's training target, so the damage is the deliverable.
 
 A *track* is a delivery path; a *generation* is the encoding it carries.
 

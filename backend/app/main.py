@@ -16,8 +16,9 @@ app.add_middleware(
 
 app.include_router(router)
 
-# The call page needs extra packages (reedsolo). If they are missing, the rest
-# of the app still starts and /api/tel answers with what to install.
+# The call page pulls in the tel modules and, through them, scipy. If any of
+# that is missing the rest of the app still starts and /api/tel answers with
+# what to install, rather than the whole server failing to boot.
 try:
     from app.api.tel_routes import router as tel_router
     app.include_router(tel_router)

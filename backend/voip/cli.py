@@ -50,7 +50,7 @@ def cmd_check_env(args):
         "python": sys.version.split()[0],
         "platform": sys.platform,
         "packages": {n: _module_version(n)
-                     for n in ("numpy", "scipy", "PIL", "reedsolo", "sounddevice")},
+                     for n in ("numpy", "scipy", "PIL", "sounddevice")},
         "tools": {
             "ffmpeg": shutil.which("ffmpeg"),
             "ffprobe": shutil.which("ffprobe"),

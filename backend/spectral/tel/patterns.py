@@ -1,7 +1,7 @@
 """A deterministic test image, so a run is comparable with the last one.
 
-Lived in test_pipeline.py until that file was cut to rejected/. demo.py is the
-only shipping caller.
+Lived in test_pipeline.py, which now only runs Generation A. demo.py is the
+only other caller.
 """
 
 import numpy as np

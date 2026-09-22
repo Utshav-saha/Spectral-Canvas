@@ -5,7 +5,7 @@ directory has to be on ``sys.path`` before any of them will import. This is the
 same shim that already sits at the top of ``app/services/tel_pipeline.py``.
 
 Every accessor is a function rather than a module-level ``import`` so that
-``voip.cli check-env`` can *report* a missing ``reedsolo`` instead of dying on
+``voip.cli check-env`` can *report* a missing dependency instead of dying on
 the import line -- reporting what is missing is the whole point of that command.
 """
 
@@ -46,14 +46,6 @@ def fsk():
 def image_fsk():
     """Generation B: raw quantized pixels <-> bits."""
     return _load("image_fsk")
-
-
-def image_webp():
-    """Generation C: WebP + Reed-Solomon + keyed byte shuffle."""
-    return _load(
-        "image_webp",
-        "It needs the reedsolo package: pip install reedsolo",
-    )
 
 
 def channel_sim():

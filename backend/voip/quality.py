@@ -8,7 +8,7 @@ meaningless:
     no-sync      no preamble in the recording at all
     bad-header   preamble found, but the 16 bits after it are not a frame
     truncated    recording stops before the payload does
-    rs-failed    all the symbols arrived, Reed-Solomon still could not repair
+    (rs-failed)  retired with Generation C: nothing left has parity to fail
     wrong-pin    same as above, but a lock was in use, so suspect the PIN first
     ok           picture or text recovered
 
@@ -148,20 +148,20 @@ def verdict(sync_info, frame_info, bounds, payload_info, symbols_info,
         ))
         return "truncated", hints
 
+    # Both shipping generations always produce a picture: Generation A's
+    # amplitudes are simply wrong, and Generation B's argmax always lands on
+    # some tone. Generation C's parity was the only thing that could report a
+    # payload as unopenable, and it went with Generation C -- so "wrong-pin"
+    # and "rs-failed" are no longer reachable. A wrong PIN now decodes
+    # successfully to the wrong picture, and the evidence is in the pixels:
+    # see report["quality"]["exact_fraction"].
     if not (payload_info or {}).get("opened"):
-        if locked:
-            hints.insert(0, (
-                "Every symbol arrived, but Reed-Solomon could not rebuild the "
-                "payload. With a lock in use the first suspect is the PIN or the "
-                "two phone numbers, which have to match the sending side exactly."
-            ))
-            return "wrong-pin", hints
         hints.insert(0, (
-            "Every symbol arrived, but Reed-Solomon could not repair the damage. "
-            "It is all-or-nothing past 16 bad bytes in any 255-byte block, so a "
-            "shorter transmission (--size 96, or --gen B) is the way back."
+            "The symbols arrived but no picture came out, which should not "
+            "happen on either generation. Treat this as a bug rather than a "
+            "bad call."
         ))
-        return "rs-failed", hints
+        return "bad-payload", hints
 
     return "ok", hints
 

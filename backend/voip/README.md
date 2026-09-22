@@ -7,15 +7,15 @@ This package sends it through a real one.
 ```
   prepare            call                    (the phone)          decode
   ────────           ────                    ───────────          ──────
-  picture            register with SIP       answer               find the preamble
-  → WebP + RS        dial the phone          mute the mic         read the header
-  → 16-FSK tones     play tx.wav into it     press Record         demodulate
+  picture            register with SIP       answer               align on the preamble
+  → grid + levels    dial the phone          mute the mic         read the geometry
+  → gen A or gen B   play tx.wav into it     press Record         demodulate
   → tx.wav           hang up                 send the file back   → picture + report
 ```
 
-Nothing here reimplements the modem. `spectral/tel/fsk_codec.py` is the ground
-truth and is imported unchanged, along with `image_webp.py` (WebP →
-Reed-Solomon → PIN-keyed byte shuffle) and `image_fsk.py` (raw pixels).
+Nothing here reimplements a modem. `spectral/tel/call_track.py` is the ground
+truth for both generations and is imported unchanged: Generation A through
+`tel_encoder`/`tel_decoder`, Generation B through `image_fsk`/`fsk_codec`.
 
 ## Why the package exists
 
@@ -56,7 +56,7 @@ separately — `channel_sim` falls back to its `toast` binary.
 
 ```bash
 # 1. make the audio
-python -m voip.cli prepare --image cat.jpg --gen B --grid 16 --levels 4
+python -m voip.cli prepare --image cat.jpg --gen A --grid 24 --levels 4
 
 # 2. rehearse. Twice: no phone involved, and worth doing every time
 python -m voip.cli simulate --run latest --lead 30 --decode     # fake call
@@ -96,23 +96,32 @@ warns when it is not what you asked for.
 
 ## Which generation to send
 
-| | airtime | what it is | when |
+| | airtime | what it is | over GSM |
 |---|---|---|---|
-| `--gen B --grid 16 --levels 4` | **9.6 s** | raw quantized pixels, Hamming(7,4) | first calls, and anything you expect to retry |
-| `--gen C --size 96` | ~60 s | WebP + Reed-Solomon, full colour | the demo |
-| `--gen C --size 128` | ~86 s | as above, more detail | the demo, if the line is good |
-| `--text "..."` | ~7 s per 40 chars | UTF-8 through the Gen-C pipeline | messages |
+| `--gen A --grid 24` | **2.7 s** | multitone, 2 pilot tones, amplitude carries the pixel | ~75% of pixels exact |
+| `--gen A --grid 48 --colour` | ~18 s | the same, in colour | as above |
+| `--gen B --grid 16` | 9.6 s | one tone per symbol, Hamming(7,4) | **100% exact** |
+| `--gen B --grid 24` | 20.8 s | as above, more detail | 100% exact |
 
-Start with Generation B. It is a tenth of the air time, so a failed attempt
-costs ten seconds instead of a minute and a half, and it **degrades
-gracefully** — a bad symbol costs you pixels. Reed-Solomon does not: past 16
-bad bytes in any 255-byte block the picture does not get worse, it fails to
-open at all, and tells you nothing about why.
+The two fail in opposite ways, and that is the whole point of keeping both.
+
+**Generation B is exact.** The decoder takes an `argmax` over sixteen tones and
+never compares magnitudes, so a codec that flattens loudness cannot reach it.
+The cost is airtime: it caps out around 32×32 grayscale.
+
+**Generation A is not, on purpose.** The pixel is in a tone's amplitude, which
+is exactly what GSM 06.10's 8-pole LPC envelope throws away. It comes back
+damaged by a margin that is graded and reproducible, which is what makes it a
+training target rather than a failure. It is also about eight times cheaper per
+pixel than Generation B, so it carries the resolution.
+
+Start with Generation A: it is under three seconds, so a failed attempt costs
+nothing, and it is the one the restoration work is about.
 
 Text does **not** use `spectral/text/text_codec.py`. That is 44.1 kHz MFSK
 between 2 and 5 kHz with no error correction, and a voice channel keeps roughly
-300–3400 Hz, so most of its tones never arrive — the same reason the original
-64-row image encoder had to be abandoned for this path.
+300–3400 Hz, so most of its tones never arrive. `--text` renders the message
+into the grid and sends it as a picture instead.
 
 ## On the phone, before the first call
 
@@ -140,22 +149,31 @@ reading at a glance:
 `no-sync`, ordered by how early things went wrong, and `hints` says what to try
 next.
 
-## If the SDK will not build
+## The SDK route was abandoned
 
-Expect this. The Linphone Python bindings are not on PyPI for macOS on Apple
-silicon and have to be compiled from source. Give it a day, then use the
-fallback, which reaches the same channel:
+The liblinphone Python bindings are on no package index, for any platform, and
+have to be compiled from the SDK source tree. `voip/call/session.py` was
+written against the 5.5 reference and **has never run**.
+
+It turned out not to be needed. Linphone is a SIP client and
+`sip.linphone.org` is an ordinary SIP registrar, so the app on the phone
+answers a call from any SIP client — including `pjsua`, which this repo already
+depends on for the loopback rehearsal. `voip/dial.py` drives it:
 
 ```bash
-brew install blackhole-2ch
-# Linphone desktop → Preferences → Audio → input device: BlackHole 2ch
-#                                       → echo cancellation OFF, PCMU only
-# place the call by hand, then:
-python -m voip.cli call --run latest --fallback
+brew install pjproject
+export VOIP_SIP_IDENTITY=sip:you-laptop@sip.linphone.org
+read -s VOIP_SIP_PASSWORD && export VOIP_SIP_PASSWORD
 ```
 
-Only the dialling is manual. Say which route produced which result in the
-write-up — the fallback is a stopgap, not the API integration.
+Then either `POST /api/tel/dial` from the Call page, or drive pjsua yourself.
+SIP to SIP, so it never touches the phone network and costs nothing.
+
+**What no route can do is bring the audio back.** pjsua records its own inbound
+leg, which is your muted microphone — not the tones the phone received. The
+recording has to be made on the phone with Linphone's in-call Record button and
+then uploaded. No app can capture another app's call audio: Android blocks it
+and iOS does not allow it at all.
 
 ## Tests
 
@@ -179,8 +197,10 @@ well, for a missing `to_image_array`; that name exists now.)
   goes through `sdk.try_set` / `try_get`, so a renamed attribute produces a
   warning in `call.json` rather than an exception mid-call. `check-env` prints
   `sdk.probe()`; look at it before the first call.
-- Generation B is grayscale only, up to 32×32. The 16-bit header has room for
-  exactly `rows`, `cols` and a level code. Colour goes over Generation C.
+- Generation B is grayscale only, up to 32×32: the 16-bit header has room for
+  exactly `rows`, `cols` and a level code. Colour goes over Generation A, which
+  has no wire header at all — its geometry lives in the run manifest, so
+  `decode` needs `--run` pointed at the run that produced the audio.
 - Clock drift between the laptop's DAC and the phone's ADC is unmeasured.
   Roughly 260 ppm would walk half a symbol over an 86-second transmission, and
   Bluetooth or AirPlay resamplers can exceed that. `decode --drift-scan`

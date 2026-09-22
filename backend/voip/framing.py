@@ -184,7 +184,7 @@ def genb_info(rows, cols, levels):
 
 
 def genc_info(packet_bytes):
-    """Generation C carries Reed-Solomon bytes raw: 8 bits = exactly 2 symbols."""
+    """Kept for the header arithmetic: 8 bits = exactly 2 symbols."""
     packet_bytes = int(packet_bytes)
     return {
         "n_payload_bits": 8 * packet_bytes,
@@ -217,12 +217,12 @@ def read_header_bits(audio, offset):
     return fsk.hamming_decode(bits)[:HEADER_BITS], margin
 
 
-def read_frame(audio, offset, expect="auto", rs_parity=None):
+def read_frame(audio, offset, expect="auto"):
     """The 16 header symbols at `offset` -> a Frame, or FrameError.
 
     Only Generation B uses this framing. Generation A has its own pilot-tone
     preamble and carries its geometry in the run manifest, so it never reaches
-    here. `expect` and `rs_parity` are kept for call compatibility and ignored.
+    here. `expect` is kept for call compatibility and ignored.
     """
     bits, warnings = read_header_bits(audio, offset)
     parsed = parse_header(bits)

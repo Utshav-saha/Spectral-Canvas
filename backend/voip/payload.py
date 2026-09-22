@@ -18,9 +18,9 @@ matrix upstream of the modem, so the shuffle survives a call. The additive
 noise mask does not come along -- cancelling it needs sample-exact alignment
 that an RTP path with a jitter buffer cannot give.
 
-Generation C (WebP + Reed-Solomon) was cut; see
-``spectral/tel/rejected/README.md``. Text over a call now goes through
-``--as-image``, rendered and sent as a picture, rather than as raw bytes.
+Generation C (WebP + Reed-Solomon) was cut: a byte-exact file transfer has no graded loss to measure or learn from. It is in the git history. Text over a call now goes
+through ``--as-image``, rendered and sent as a picture, rather than as the raw
+bytes Generation C used to carry.
 """
 
 import io

@@ -154,11 +154,15 @@ def utc_now():
 
 _VERDICT_LABEL = {
     "ok": "PASS",
-    "rs-failed": "FAIL",
-    "wrong-pin": "FAIL",
     "truncated": "FAIL",
     "bad-header": "FAIL",
     "no-sync": "FAIL",
+    "bad-payload": "FAIL",
+    # Generation C's parity was the only thing that could report a wrong key,
+    # so these two are unreachable now. Kept so an older report.json still
+    # prints, rather than falling through to a bare verdict string.
+    "rs-failed": "FAIL",
+    "wrong-pin": "FAIL",
 }
 
 

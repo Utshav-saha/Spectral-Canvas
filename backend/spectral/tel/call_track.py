@@ -9,7 +9,7 @@ is. That gives the two generations offered here:
                    The same parallel multitone scheme, narrowbanded to
                    700-3000 Hz with two pilot tones for gain correction. The
                    pixel is still in the amplitude, so a codec damages it:
-                   about 67% of pixels exact through simulated GSM, against
+                   about 75% of pixels exact through simulated GSM, against
                    100% with no channel. That damage is the point - it is
                    graded, reproducible, and it is what the restoration model
                    is trained to undo.
@@ -33,7 +33,8 @@ modem, so they survive a call untouched. The additive noise mask does not come
 along: cancelling it needs sample-exact alignment, and an RTP path with a
 jitter buffer can never promise that.
 
-Generation C (WebP + Reed-Solomon) was cut. See rejected/README.md.
+Generation C (WebP + Reed-Solomon) was cut: a byte-exact file transfer
+has no graded loss to measure or learn from. It is in the git history.
 """
 
 import os

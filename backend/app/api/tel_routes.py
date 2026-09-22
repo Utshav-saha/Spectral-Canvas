@@ -1,8 +1,7 @@
 """Endpoints for the voice-call page. Everything lives under /api/tel so the
 original /api routes stay exactly as the Send and Receive pages expect.
 
-Two generations ship here, A and B. Generation C was cut - see
-spectral/tel/rejected/README.md."""
+Two generations ship here, A and B. Generation C (WebP + Reed-Solomon) was cut: a byte-exact file transfer has no graded loss to measure or learn from. It is in the git history."""
 
 from typing import Optional
 
