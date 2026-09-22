@@ -3,6 +3,7 @@ import NavBar from './components/NavBar'
 import Landing from './pages/Landing'
 import Simulate from './pages/Simulate'
 import Receive from './pages/Receive'
+import Call from './pages/Call'
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/simulate" element={<Simulate />} />
           <Route path="/receive" element={<Receive />} />
+          <Route path="/call" element={<Call />} />
         </Routes>
         <footer className="site-foot">
           <div className="shell">

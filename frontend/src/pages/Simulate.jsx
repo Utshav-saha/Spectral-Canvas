@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import DoodleCanvas from "../components/DoodleCanvas";
 import WaveformScope from "../components/WaveformScope";
 import * as api from "../api/client";
@@ -57,6 +57,11 @@ const FALLBACK_TRACKS = [
     supports_colour: true,
     supports_lock: true,
     supports_text: false,
+    more: {
+      href: "/call",
+      label: "Call page",
+      note: "This gives you the audio to play down a line yourself, at 32 \u00d7 32. To place a real call, or to send a full-colour picture up to 160 px over the same modem, use the Call page \u2014 it compresses to WebP and adds Reed-Solomon first.",
+    },
   },
 ];
 
@@ -516,6 +521,13 @@ export default function Simulate() {
                     ? "Text always goes out as a clean 44.1 kHz file."
                     : track.summary}
                 </p>
+                {!isText && track.more && (
+                  <p className="field-note">
+                    {track.more.note}{" "}
+                    <Link to={track.more.href}>Open the {track.more.label}</Link>
+                    .
+                  </p>
+                )}
               </div>
 
               <hr className="module-rule" />

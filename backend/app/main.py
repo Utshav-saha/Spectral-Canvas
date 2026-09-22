@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
@@ -15,6 +15,20 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+# The call page needs extra packages (reedsolo). If they are missing, the rest
+# of the app still starts and /api/tel answers with what to install.
+try:
+    from app.api.tel_routes import router as tel_router
+    app.include_router(tel_router)
+except ImportError as _tel_error:
+    _tel_detail = (f"The call page is unavailable on this server: {_tel_error}. "
+                   "Install the backend requirements and restart it.")
+    print(f"WARNING: {_tel_detail}")
+
+    @app.api_route("/api/tel/{path:path}", methods=["GET", "POST"])
+    def tel_unavailable(path: str):
+        raise HTTPException(503, _tel_detail)
 
 
 @app.get("/")

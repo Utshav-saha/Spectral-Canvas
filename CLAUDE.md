@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Spectral Canvas is a Signals and Systems coursework project that turns an image into audio and back again. Image rows map to frequency lanes, columns map to time frames, and brightness sets amplitude. The WAV it produces is a real, playable file, and the receiver rebuilds the picture from that audio alone. A transmission can optionally be locked with two 11-digit phone numbers and a 4–8 digit PIN. A wrong PIN doesn't raise an error. It decodes to static, and that is intended behaviour that the UI explains.
 
-Longer docs: `README.md` (running it), `BACKEND_GUIDE.md` (API contract and why the library is shaped the way it is), `FRONTEND_GUIDE.md`, `PRODUCT.md` (audiences and the planned features), and `DESIGN.md` (the binding visual system). `docs/` holds copies of the guides plus the project-plan PDFs.
+Longer docs: `README.md` (running it) and `DESIGN.md` (the binding visual system) are at the root. Everything else lives in `docs/`: `BACKEND_GUIDE.md` (API contract and why the library is shaped the way it is), `FRONTEND_GUIDE.md`, `PRODUCT.md` (audiences and the planned features), `RESTORATION_PLAN.md` (channel inversion and the learned restoration step), plus the project-plan PDFs. `backend/voip/README.md` is the guide for the real-phone-call path and is the most current of them.
 
 ## Commands
 
@@ -19,8 +19,11 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000     # health: /api/health, docs: /docs
 
-# Round-trip test (a script, not pytest). Must be run as a module from backend/.
+# Round-trip test (a script, not pytest, and conftest.py excludes it from collection).
 python -m tests.test_roundtrip
+
+# The pytest suite, which is the voip/ package's. Skips cleanly without ffmpeg/libgsm/pjsua/SDK.
+python -m pytest tests/ -q
 
 # Text MFSK codec self-test
 python spectral/text/text_codec.py
@@ -30,6 +33,13 @@ cd backend/spectral/tel
 python3 demo.py                     # image -> 16-FSK -> simulated GSM call -> image; writes tx.wav
 ./run_local_call.sh tx.wav rx.wav   # real SIP loopback call; needs `brew install pjproject` (pjsua)
 cd rejected && python3 test_pipeline.py   # cut Track 3; reproduces the ~17.7% error result
+
+# Real phone call (backend/voip/, run from backend/). voip/README.md is the full guide.
+python -m voip.cli check-env                                   # run this first, always
+python -m voip.cli prepare --image cat.jpg --gen B --grid 16 --levels 4
+python -m voip.cli simulate --run latest --pjsua --decode       # SIP loopback rehearsal
+python -m voip.cli call --run latest --dial sip:you@sip.linphone.org
+python -m voip.cli decode ~/Downloads/call.mka --run latest --json
 
 # Frontend (Vite on :5173; proxies /api -> 127.0.0.1:8000)
 cd frontend
@@ -42,9 +52,9 @@ There is no linter and no JS test setup. The root `.venv` lacks FastAPI, so use 
 
 ## Repository layout gotchas
 
-- **The live code is under `backend/` and `frontend/`.** The top-level `spectral/`, `tests/`, `requirements.txt`, `encoder_prev/`, `metadata.json`, `output_pepsi.wav` and `recovered.png` are leftovers from before the move into `backend/`. They have diverged from the `backend/` copies, so don't edit them expecting any effect. `spectral/unused/` and `encoder_prev/` hold the abandoned binary-encoding approach.
+- **The live code is under `backend/` and `frontend/`.** The diverged top-level `spectral/` copy was deleted in the `reco_deco` merge. `tests/`, `requirements.txt`, `encoder_prev/`, `metadata.json`, `output_pepsi.wav` and `recovered.png` are still leftovers from before the move into `backend/`; don't edit them expecting any effect. `encoder_prev/` holds the abandoned binary-encoding approach.
 - `frontend/dist/` is committed build output.
-- The guides partly describe a target state that `backend/spectral/` doesn't fully match yet. Examples: `reference_gain` calibration, `to_image_array`, and `synchronize(audio, metadata)`. Check the actual function signatures before relying on the guide. The same applies to `FRONTEND_GUIDE.md`: its "SC-01 SignalBench" and indigo/coral palette became `DMG01.jsx` and the oxide/LCD palette in `DESIGN.md`.
+- The guides partly describe a target state that `backend/spectral/` doesn't fully match yet. Examples: `reference_gain` calibration and `synchronize(audio, metadata)`. Check the actual function signatures before relying on the guide. (`to_image_array` was on that list until it was actually added to `image_reconstructor.py`; it is now real.) The same applies to `FRONTEND_GUIDE.md`: its "SC-01 SignalBench" and indigo/coral palette became `DMG01.jsx` and the oxide/LCD palette in `DESIGN.md`.
 - Several `spectral/` modules (the decoder and `audio_encoder.py`) add entries to `sys.path` and use bare sibling imports such as `from synchronizer import ...`. `app/`, by contrast, imports them as `spectral.decoder...`. When touching imports, make sure both the app and the test still import cleanly.
 
 ## Architecture
@@ -62,6 +72,7 @@ There is no linter and no JS test setup. The root `.venv` lacks FastAPI, so use 
 ### Telephony path (`backend/spectral/tel/`)
 
 This directory sends images over an 8 kHz voice call (GSM 06.10 over SIP), and `tel/README_TELEPHONY.md` has the full reasoning. `call_track.py` is the app-facing wrapper (**Track 2**, see below); the rest of the directory is still standalone scripts you run by hand. Voice codecs model each 20 ms frame with an 8-pole LPC envelope. That keeps *which* frequency is present but loses *how loud* it is, so the main app's parallel multitone scheme, where amplitude carries each pixel, fails here.
+- `image_webp.py` is Generation C: WebP -> Reed-Solomon (32 parity per 255) -> PIN-keyed byte shuffle -> the same 16-FSK modem. It carries full colour up to 160 px, where raw pixels top out near 24x24. Note it fails differently from Gen B: past 16 bad bytes in a block the picture does not degrade, it refuses to open.
 - `fsk_codec.py` is the working modem. It sends one tone per 40 ms symbol, chosen from 16 tones between 700 and 3200 Hz, which gives 100 bit/s raw. A preamble handles sync. The payload is Hamming(7,4) coded and interleaved, with a 16-bit length header. The decoder only takes an `argmax` over tone bins and never compares magnitudes. `image_fsk.py` converts between activation matrices and bits, and its `budget()` function gives the call length. `channel_sim.py` simulates the call offline: GSM, packet loss, AGC and noise.
 - `tel/rejected/` holds Track 3, the failed narrowband multitone attempt with pilot tones (`tel_*.py`, `test_pipeline.py`). It is cut from the product and imported by nothing that ships, but kept on purpose for the report; `tel/rejected/README.md` has the reasoning and the numbers. `tel/patterns.py` holds the test image that used to live in `test_pipeline.py`, because `demo.py` still needs it.
 - To reuse main-library pieces on this path, keep `scramble`/`unscramble`, which permute before the modem. **Drop the additive `generate_mask`/`remove_mask`**, because an RTP path never gives sample-exact alignment. `recover_activation` and the energy- or correlation-based sync don't carry over either.
@@ -91,6 +102,47 @@ file with no `track` field predates the split and is Track 1.
   upload limit.
 - **Track 3 was cut.** It was Track 1's scheme sent over a call, and it sits in
   `spectral/tel/rejected/`. Nothing imports it. Don't wire it back in.
+
+A *track* is a delivery path; a *generation* is the encoding it carries, and
+they are separate axes. Gen A is the parallel multitone scheme (Track 1), Gen B
+is 16-FSK over raw pixels (Track 2), and **Gen C** is WebP + Reed-Solomon over
+the same 16-FSK modem. Gen C is not offered through `/api/encode` at all: it
+needs a staged upload so size and quality re-plan without re-uploading, and it
+reports Reed-Solomon block health rather than a pixel error, so it has its own
+endpoints and its own page. The `voip.cli --gen` flag uses the same letters.
+
+### The call path (`backend/voip/`, `/api/tel`, the Call page)
+
+Merged from `reco_deco`. This is the only part of the project that places a
+**real** phone call; everything else either writes a file or simulates the
+channel offline. `backend/voip/README.md` is the guide, and it is detailed -
+read it before touching this.
+
+- `backend/voip/` is a standalone package with its own CLI (`python -m
+  voip.cli`), its own pytest suite under `backend/tests/test_voip_*.py`, and
+  its own `runs/` scratch directory. It reimplements **none** of the modem:
+  `spectral/tel/fsk_codec.py` stays the ground truth and is imported unchanged
+  through `voip/_tel.py`, which is the same `sys.path` shim as
+  `spectral/tel/__init__.py`. Both are idempotent and load the same module
+  objects.
+- What it adds around the modem is the four things a real recording needs that
+  an in-memory array does not: whole-file preamble search that also returns its
+  score (`sync.py`), decision margins kept rather than discarded (`dsp.py`),
+  short-recording detection instead of confident garbage (`framing.py`), and
+  ffmpeg transcoding, because Linphone records Matroska (`audio_io.py`).
+- `app/api/tel_routes.py` + `app/services/tel_pipeline.py` serve the Call page
+  under **`/api/tel`**, deliberately namespaced so the Send and Receive
+  contract is untouched: `info`, `stage`, `plan/{id}`, `send`, `call`,
+  `inspect`, `receive`, `audio/{id}`, `waveform/{id}`, `sent/{id}`,
+  `recovered/{id}`. The `call` endpoint is the **offline** simulator; a real
+  call goes through the CLI.
+- `app/main.py` mounts that router inside a `try/except ImportError`, so a
+  machine without `reedsolo` still starts the rest of the app and `/api/tel/*`
+  answers 503 with what to install. Keep that guard.
+- `MAX_AUDIO_UPLOAD_BYTES` (32 MB) is separate from `MAX_UPLOAD_BYTES` (12 MB),
+  because a recorded call is much bigger than a picture.
+- Frontend: `pages/Call.jsx` + `Call.css`, `api/telClient.js`, and a `/call`
+  route. `telClient.js` is kept apart from `client.js` on purpose.
 
 ### HTTP layer
 

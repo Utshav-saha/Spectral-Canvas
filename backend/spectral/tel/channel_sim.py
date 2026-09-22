@@ -14,6 +14,7 @@ about a second per trial, instead of placing a call for every experiment.
 """
 
 import os
+import shutil
 import subprocess
 import tempfile
 
@@ -23,7 +24,40 @@ from scipy.io.wavfile import read, write
 GSM_FRAME = 160          # 20 ms at 8 kHz
 
 
+def _ffmpeg_has_libgsm():
+    if not shutil.which("ffmpeg"):
+        return False
+    probe = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
+                           capture_output=True, text=True)
+    return "libgsm" in probe.stdout
+
+
 def gsm_roundtrip(audio, sample_rate=8000):
+    """Encode to GSM 06.10 and back.
+
+    Uses ffmpeg when it was built with libgsm. Homebrew's ffmpeg is not, so
+    otherwise fall back to libgsm's own reference coder, toast/untoast
+    (`brew install libgsm`), fed raw 16-bit host-order PCM.
+    """
+    if _ffmpeg_has_libgsm():
+        return _gsm_roundtrip_ffmpeg(audio, sample_rate)
+    if shutil.which("toast"):
+        return _gsm_roundtrip_toast(audio)
+    raise RuntimeError("No GSM 06.10 codec found. Install libgsm "
+                       "(brew install libgsm) or an ffmpeg built with libgsm.")
+
+
+def _gsm_roundtrip_toast(audio):
+    pcm = (np.clip(audio, -1.0, 1.0) * 32767.0).astype(np.int16)
+    encoded = subprocess.run(["toast", "-l", "-c"], input=pcm.tobytes(),
+                             capture_output=True, check=True).stdout
+    decoded = subprocess.run(["toast", "-d", "-l", "-c"], input=encoded,
+                             capture_output=True, check=True).stdout
+    out = np.frombuffer(decoded, dtype=np.int16)[:len(pcm)]
+    return out.astype(np.float64) / 32767.0
+
+
+def _gsm_roundtrip_ffmpeg(audio, sample_rate=8000):
     """Encode to GSM 06.10 and back using ffmpeg's libgsm."""
     tmp = tempfile.mkdtemp()
     raw = os.path.join(tmp, "in.wav")

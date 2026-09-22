@@ -1,0 +1,102 @@
+/* ==========================================================================
+   Over a call. Built from Send's and Receive's module language: .module,
+   .drop, .filecard, .lockfields, .switch and .toggle come from Simulate.css,
+   .rcv-grid and .recovered-* from Receive.css. Both are imported first.
+   Only what this page adds lives here.
+   ========================================================================== */
+
+.call { position: relative; z-index: 1; padding-bottom: 110px; }
+
+.call-modes {
+  display: inline-flex;
+  margin-top: 22px;
+}
+
+.call-section { margin-top: 64px; }
+
+/* two selects side by side inside a settings module */
+.call-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.call-pair .field { margin-bottom: 16px; }
+
+/* a small measured readout, the head readout's language at module scale */
+.call-readout {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 7px 20px;
+  margin: 0;
+  padding: 13px 15px;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: var(--inset-well);
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
+}
+.call-readout dt {
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.call-readout dd {
+  margin: 0;
+  text-align: right;
+  color: var(--ink-2);
+}
+
+.call-rx {
+  display: flex;
+  flex-direction: column;
+  margin-top: 20px;
+}
+
+.call-alert { margin-top: 18px; }
+
+.call-rebuilt-empty { min-height: 260px; }
+
+/* sent and rebuilt, side by side at the same scale so a difference shows */
+.call-compare {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  max-width: 460px;
+}
+.call-compare.is-pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: none;
+}
+
+.call-fig { margin: 0; }
+.call-fig figcaption {
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
+}
+
+.call-frame {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+}
+.call-img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+/* only the rebuilt picture paints in; the sent one was already there */
+.call-fig:first-child:not(:last-child) .call-frame::after { display: none; }
+
+@media (max-width: 620px) {
+  .call-pair { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .call-modes { display: flex; }
+  .call-compare.is-pair { grid-template-columns: minmax(0, 1fr); }
+}
