@@ -205,21 +205,28 @@ function Rebuilt({ result, sentUrl }) {
     return <p className="scope-empty call-rebuilt-empty">The rebuilt picture will appear here.</p>
   }
 
-  const meta = result.ok
-    ? [`${result.width} × ${result.height}`, `${result.webp_bytes} B WebP`,
-       `${result.repaired_bytes} B repaired`]
-    : [`${result.packet_bytes} B received`, 'not decodable']
+  /* Both generations always produce a picture, so there is no "did not open"
+     case any more - what a wrong PIN produces is a real picture of the wrong
+     thing. The number that tells them apart is how much of it is right. */
+  const exact = result.match?.exact_fraction
+  const meta = [
+    `${result.rows} × ${result.columns}`,
+    `gen ${result.generation}`,
+    exact === undefined ? null
+      : exact === 1 ? 'pixel-identical'
+      : `${(exact * 100).toFixed(1)}% of pixels exact`,
+  ].filter(Boolean)
 
   return (
     <div className="module recovered">
       <div className="module-head">
-        <h2>{result.ok ? 'Rebuilt picture' : 'Static'}</h2>
+        <h2>Rebuilt picture</h2>
         <span className="mono recovered-meta">{meta.join(' · ')}</span>
       </div>
 
       <div className="module-body">
-        <div className={`call-compare ${sentUrl && result.ok ? 'is-pair' : ''}`}>
-          {sentUrl && result.ok && (
+        <div className={`call-compare ${sentUrl ? 'is-pair' : ''}`}>
+          {sentUrl && (
             <figure className="call-fig">
               <div className="recovered-frame call-frame">
                 <img src={sentUrl} alt="The picture as it went on the wire" className="call-img" />
@@ -230,39 +237,33 @@ function Rebuilt({ result, sentUrl }) {
           <figure className="call-fig">
             <div className="recovered-frame call-frame">
               <img key={result.url} src={result.url} className="recovered-img call-img"
-                   alt={result.ok ? 'The picture rebuilt from the audio' : 'Static from an undecodable transmission'} />
+                   alt="The picture rebuilt from the audio" />
             </div>
-            <figcaption>{result.ok ? 'Rebuilt from the audio' : 'Received bytes, unshuffled with this key'}</figcaption>
+            <figcaption>Rebuilt from the audio</figcaption>
           </figure>
         </div>
 
-        {result.ok && result.match && (
-          <div className="alert alert-ok call-alert">
+{result.match && (
+          <div className={`alert call-alert ${exact > 0.9 ? 'alert-ok' : 'alert-error'}`}>
             <p>
               {result.match.identical
                 ? 'Identical to what was sent, pixel for pixel.'
-                : `Close to what was sent: PSNR ${result.match.psnr} dB.`}
-            </p>
-          </div>
-        )}
-
-        {!result.ok && (
-          <div className="alert alert-error call-alert">
-            <p>
-              Reed-Solomon could not repair the bytes. With the wrong
-              numbers or PIN the shuffle is undone in the wrong order, so every block looks
-              damaged and only static comes back. If the key is right, the call lost too much.
+                : exact > 0.9
+                  ? `Close to what was sent: ${(exact * 100).toFixed(1)}% of pixels exact, PSNR ${result.match.psnr} dB.`
+                  : `Only ${(exact * 100).toFixed(1)}% of pixels are right, at PSNR ${result.match.psnr} dB. On Generation A that is what a voice codec does to amplitudes. If the transmission was locked, it is also what a wrong PIN looks like — the two are not distinguishable from the picture alone.`}
             </p>
           </div>
         )}
 
         <div className="recovered-foot">
           <p className="field-note">
-            Preamble found {result.offset_seconds}s into the audio. Each 40 ms slice was read
-            as whichever of sixteen tones was strongest.
+            {result.generation === 'A'
+              ? `Pilot tones aligned the grid ${result.offset_seconds}s into the audio. Each frame's row amplitudes were divided by its own pilots, so gain and AGC cancel.`
+              : `Preamble found ${result.offset_seconds}s into the audio. Each 40 ms slice was read as whichever of sixteen tones was strongest.`}
+            {result.truncated ? ' The recording stopped before the transmission ended, so the tail is missing.' : ''}
           </p>
           <button type="button" className="btn btn-ghost"
-                  onClick={() => downloadUrl(result.url, result.ok ? 'received.png' : 'static.png')}>
+                  onClick={() => downloadUrl(result.url, 'received.png')}>
             Download picture
           </button>
         </div>
@@ -603,10 +604,12 @@ function CallSend({ info, generations, onSent }) {
               {!txOpen && <p className="field-note">Open the file to inspect its waveform.</p>}
 
               <figure className="sent-preview">
-                <img src={tx.sent_url} alt="What was sent, after compression" />
+                <img src={tx.sent_url} alt="What was sent, at transmission size" />
                 <figcaption>
-                  {tx.report.width} &times; {tx.report.height} &middot; WebP q{tx.report.quality}
-                  {tx.report.compression_psnr !== null ? ` · ${tx.report.compression_psnr} dB vs original` : ''}
+                  {tx.report.rows} &times; {tx.report.columns} &middot;{' '}
+                  {tx.report.gray_levels} gray levels &middot;{' '}
+                  {tx.report.channels === 3 ? 'colour' : 'grayscale'} &middot;{' '}
+                  Generation {tx.report.generation}
                 </figcaption>
               </figure>
 
