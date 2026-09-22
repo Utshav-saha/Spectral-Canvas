@@ -52,10 +52,10 @@ def test_check_env_never_raises_over_a_missing_sdk():
 # --------------------------------------------------------------------------
 
 def test_prepare_dry_run_makes_no_audio(synthetic_image, tmp_path):
-    proc = run("prepare", "--image", synthetic_image, "--gen", "C",
-               "--size", "64", "--dry-run", "--json", expect=0)
+    proc = run("prepare", "--image", synthetic_image, "--gen", "A",
+               "--grid", "24", "--dry-run", "--json", expect=0)
     plan = json.loads(proc.stdout)
-    assert plan["generation"] == "C"
+    assert plan["generation"] == "A"
     assert plan["airtime_seconds"] > 0
     # the fixture image lives in tmp_path too, so check for the output instead
     assert not list(tmp_path.glob("**/tx.wav"))

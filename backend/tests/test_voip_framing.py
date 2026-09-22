@@ -28,13 +28,6 @@ def test_genb_rejects_shapes_it_cannot_describe():
         framing.build_genb_header(16, 16, 8)
 
 
-def test_no_plausible_genc_packet_reads_as_genb():
-    """The marker is only safe if a real byte count can never reach it."""
-    for packet_bytes in list(range(1, 3000)) + list(range(58000, GEN_B_FLOOR)):
-        parsed = framing.parse_header(framing.build_genc_header(packet_bytes))
-        assert parsed["generation"] == "C"
-        assert parsed["packet_bytes"] == packet_bytes
-
 
 def test_the_genb_marker_is_out_of_reach_in_airtime():
     """61440 bytes is 82 minutes of call, so the collision cannot happen in practice."""
@@ -42,10 +35,6 @@ def test_the_genb_marker_is_out_of_reach_in_airtime():
     minutes = GEN_B_FLOOR * 2 * fsk.SYMBOL_MS / 1000.0 / 60.0
     assert minutes > 60
 
-
-def test_genc_header_refuses_an_oversized_packet():
-    with pytest.raises(FrameError, match="16-bit header"):
-        framing.build_genc_header(GEN_B_FLOOR + 1)
 
 
 # --------------------------------------------------------------------------
@@ -121,34 +110,7 @@ def test_truncation_can_be_made_fatal(genb_audio):
         framing.demodulate_frame(short, frame, clamp=False)
 
 
-def test_a_packet_smaller_than_its_parity_is_not_a_transmission(genb_audio):
-    """Generalises tel_pipeline._find_transmission's sanity check."""
-    fsk = _tel.fsk()
-    audio, _ = fsk.modulate(np.zeros(64, np.uint8), fec=False,
-                            header=framing.build_genc_header(4))
-    recording = np.concatenate([np.zeros(SAMPLE_RATE), audio, np.zeros(SAMPLE_RATE)])
-    with pytest.raises(FrameError, match="not a transmission"):
-        framing.read_frame(recording, sync.find_preamble(recording).offset, rs_parity=32)
 
-
-def test_header_ending_mid_recording_is_an_error():
-    fsk = _tel.fsk()
-    audio, _ = fsk.modulate(np.zeros(64, np.uint8), header=framing.build_genc_header(100))
-    clipped = audio[:len(fsk.PREAMBLE) * fsk.SYMBOL_SAMPLES + 200]
-    with pytest.raises(FrameError):
-        framing.read_frame(clipped, 0)
-
-
-def test_forcing_the_generation_overrides_the_marker(genb_audio):
-    """spectral/tel/demo.py writes a Gen-B wav whose header has no marker."""
-    audio, _, _ = genb_audio
-    recording = np.concatenate([np.zeros(SAMPLE_RATE), audio])
-    offset = sync.find_preamble(recording).offset
-
-    assert framing.read_frame(recording, offset, expect="auto").generation == "B"
-    forced = framing.read_frame(recording, offset, expect="C", rs_parity=32)
-    assert forced.generation == "C"
-    assert forced.warnings
 
 
 def test_frame_offset_round_trips(genb_audio):
@@ -161,3 +123,17 @@ def test_frame_offset_round_trips(genb_audio):
 
 def test_level_codes_are_a_bijection():
     assert {CODE_LEVELS[v]: v for v in CODE_LEVELS} == LEVEL_CODES
+
+
+def test_a_header_without_the_marker_is_not_one_of_ours():
+    """Generation C used every value below the marker as a byte count. With it
+    cut, anything down there is noise that happened to land on a valid symbol
+    grid, and read_frame has to say so rather than invent a picture."""
+    assert framing.parse_header(_to_bits(0x0100))["generation"] == "unknown"
+    assert framing.parse_header(_to_bits(GEN_B_FLOOR - 1))["generation"] == "unknown"
+    assert framing.parse_header(_to_bits(GEN_B_FLOOR))["generation"] == "B"
+
+
+def _to_bits(value, width=16):
+    import numpy as np
+    return np.array([int(b) for b in format(int(value), f"0{width}b")], dtype=np.uint8)

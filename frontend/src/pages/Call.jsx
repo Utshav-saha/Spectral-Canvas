@@ -8,10 +8,15 @@ import './Receive.css'
 import './Call.css'
 
 /* Over a call. The same picture-to-sound-and-back idea as Send and Receive,
-   rebuilt for an 8 kHz voice channel: a speech codec keeps which tone is
-   playing but not how loud it is, so the picture is compressed to WebP,
-   protected with Reed-Solomon, shuffled with the key, and sent one tone at a
-   time (backend/spectral/tel/image_webp.py). */
+   rebuilt for an 8 kHz voice channel, in two generations you choose between:
+
+     A  parallel multitone with pilot tones. The pixel is in how loud a tone
+        is, which is the one thing a speech codec throws away - so it arrives
+        damaged, on purpose. Cheap on the wire, so it carries the detail.
+     B  16-FSK. The pixel is in which tone plays, which a codec keeps - so it
+        arrives exact, at a fraction of the resolution.
+
+   Generation C (WebP + Reed-Solomon) was cut; see spectral/tel/rejected/. */
 
 const MODES = [
   { id: 'send', label: 'Send' },
@@ -20,6 +25,33 @@ const MODES = [
 
 const SEND_STAGES = ['Picture', 'Encode', 'Call', 'Rebuilt']
 const RECEIVE_STAGES = ['File', 'Inspect', 'Key', 'Rebuilt']
+
+const FALLBACK_GENERATIONS = [
+  {
+    id: 'A',
+    label: 'Generation A',
+    tagline: 'Amplitude carries the pixel',
+    summary:
+      'The same parallel multitone scheme the WAV track uses, narrowed to 700-3000 Hz with two pilot tones. A voice codec models each frame with eight poles and cannot hold that many tone levels, so the picture arrives damaged - roughly two thirds of pixels exact. It is fast on the wire, so it carries the most detail.',
+    sizes: [16, 24, 32, 48, 64],
+    default_size: 24,
+    levels: [2, 4, 8, 16],
+    default_levels: 4,
+    lossy: true,
+  },
+  {
+    id: 'B',
+    label: 'Generation B',
+    tagline: 'Which tone carries the pixel',
+    summary:
+      'One tone at a time out of sixteen. The decoder takes an argmax and never compares loudness, so a codec that destroys amplitude cannot touch it - the picture arrives exact. The cost is airtime, which caps the grid at about 32 x 32.',
+    sizes: [16, 24, 32],
+    default_size: 32,
+    levels: [2, 4],
+    default_levels: 4,
+    lossy: false,
+  },
+]
 
 const LOSSES = [0, 0.01, 0.02, 0.05, 0.1]
 const NOISES = [-60, -45, -35, -25]
@@ -35,7 +67,11 @@ export default function Call() {
     tel.info().then(setInfo).catch(() => setInfo(null))
   }, [])
 
-  const band = info ? `${info.f_low}–${info.f_high} Hz` : '700–3200 Hz'
+  const generations = info?.generations?.length ? info.generations : FALLBACK_GENERATIONS
+
+  /* The Send tab's last transmission. A recording of a real call carries no
+     header, so the Receive tab needs the sender's settings to rebuild it. */
+  const [reference, setReference] = useState(null)
 
   return (
     <main className="call">
@@ -43,11 +79,11 @@ export default function Call() {
         <p className="slug">
           <span>Call</span>
           <span>{mode}</span>
-          <span>16-FSK</span>
-          <span>WebP + Reed-Solomon</span>
+          <span>Gen A &middot; multitone</span>
+          <span>Gen B &middot; 16-FSK</span>
           <span>{info ? (info.gsm_available ? 'GSM codec ready' : 'No GSM codec') : '—'}</span>
           <span className="slug-sep" />
-          <b>8 kHz &middot; {band}</b>
+          <b>8 kHz &middot; 0.7&ndash;3.2 kHz</b>
         </p>
       </div>
 
@@ -56,9 +92,10 @@ export default function Call() {
           <div className="sim-head-copy">
             <h1 className="sim-title">Send it over a phone call</h1>
             <p className="sim-sub">
-              A voice codec keeps which tone is playing and throws away how loud it is. So the
-              picture is compressed, armoured against damage and sent one tone at a time, in a
-              signal that survives a real call.
+              A voice codec keeps which tone is playing and throws away how loud it is.
+              Generation B puts the picture where the codec cannot reach it and arrives exact.
+              Generation A leaves it where the codec does the damage, and arrives broken in a way
+              that is worth measuring.
             </p>
             <div className="modeswitch call-modes" role="tablist" aria-label="Send or receive">
               {MODES.map((m) => (
@@ -78,16 +115,18 @@ export default function Call() {
 
           <dl className="head-readout">
             <dt>Sample rate</dt><dd>{info?.sample_rate ?? 8000} Hz</dd>
-            <dt>Band</dt><dd>{band}</dd>
-            <dt>Tones</dt><dd>{info?.tones ?? 16}</dd>
-            <dt>Symbol</dt><dd>{info?.symbol_ms ?? 40} ms</dd>
-            <dt>Parity</dt><dd>RS {info?.rs_parity ?? 32}/255</dd>
+            <dt>Generations</dt><dd>{generations.map((g) => g.id).join(' / ')}</dd>
+            <dt>Gen A</dt><dd>lossy</dd>
+            <dt>Gen B</dt><dd>exact</dd>
+            <dt>Codec</dt><dd>{info?.gsm_available ? 'GSM' : 'none'}</dd>
           </dl>
         </header>
 
         {/* both stay mounted so switching tabs never throws work away */}
-        <div hidden={mode !== 'send'}><CallSend info={info} /></div>
-        <div hidden={mode !== 'receive'}><CallReceive /></div>
+        <div hidden={mode !== 'send'}>
+          <CallSend info={info} generations={generations} onSent={setReference} />
+        </div>
+        <div hidden={mode !== 'receive'}><CallReceive reference={reference} /></div>
       </div>
     </main>
   )
@@ -235,13 +274,15 @@ const fresh = (response) => ({ ...response, url: `${response.image_url}?t=${Date
 
 /* ------------------------------------------------------------------------ */
 
-function CallSend({ info }) {
+function CallSend({ info, generations, onSent }) {
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
   const [staged, setStaged] = useState(null)
   const [staging, setStaging] = useState(false)
-  const [size, setSize] = useState(96)
-  const [quality, setQuality] = useState(50)
+  const [genId, setGenId] = useState('A')
+  const [size, setSize] = useState(24)
+  const [levels, setLevels] = useState(4)
+  const [colour, setColour] = useState(false)
   const [plan, setPlan] = useState(null)
 
   const [secure, setSecure] = useState(false)
@@ -264,6 +305,11 @@ function CallSend({ info }) {
   const [rxWave, setRxWave] = useState(null)
   const [rxOpen, setRxOpen] = useState(false)
 
+  const [sip, setSip] = useState(() => localStorage.getItem('sc.sip') || '')
+  const [dialInfo, setDialInfo] = useState(null)
+  const [dialling, setDialling] = useState(null)
+  const [dialError, setDialError] = useState('')
+
   const [from, setFrom] = useState('rx')
   const [keyOn, setKeyOn] = useState(false)
   const [kCaller, setKCaller] = useState('')
@@ -283,6 +329,37 @@ function CallSend({ info }) {
     return () => URL.revokeObjectURL(url)
   }, [file])
 
+  useEffect(() => {
+    tel.dialStatus().then(setDialInfo).catch(() => setDialInfo(null))
+  }, [])
+
+  /* Poll while pjsua is on the line. The call lasts as long as the
+     transmission does, so this is the only way to know it finished. */
+  useEffect(() => {
+    if (!dialling || dialling.state !== 'dialling') return
+    const timer = setInterval(async () => {
+      try {
+        const next = await tel.dialProgress(dialling.call_id)
+        setDialling(next)
+      } catch {
+        clearInterval(timer)
+      }
+    }, 1500)
+    return () => clearInterval(timer)
+  }, [dialling])
+
+  const placeRealCall = async () => {
+    setDialError('')
+    try {
+      localStorage.setItem('sc.sip', sip)
+    } catch { /* private window */ }
+    try {
+      setDialling(await tel.dial({ session_id: tx.session_id, target: sip }))
+    } catch (e) {
+      setDialError(e.message)
+    }
+  }
+
   const pick = async (f) => {
     if (!f) return
     setFile(f); setStaged(null); setPlan(null); setError(''); setStaging(true)
@@ -297,13 +374,27 @@ function CallSend({ info }) {
 
   /* re-plan whenever the picture or its settings change; a slower answer to an
      older question is dropped rather than painted over a newer one */
+  const gen = generations.find((g) => g.id === genId) || generations[0]
+
+  /* Each generation carries its own grid sizes and level counts. Moving to one
+     that cannot hold the current choice snaps to that generation's default
+     rather than sending something the backend would refuse. */
+  const switchGeneration = (id) => {
+    const next = generations.find((g) => g.id === id)
+    if (!next) return
+    setGenId(id)
+    setError('')
+    if (!next.sizes.includes(size)) setSize(next.default_size)
+    if (!next.levels.includes(levels)) setLevels(next.default_levels)
+  }
+
   useEffect(() => {
     if (!staged) return
     const tick = ++planTick.current
-    tel.plan(staged.image_id, size, quality)
+    tel.plan(genId, size, levels, colour)
       .then((p) => { if (tick === planTick.current) setPlan(p) })
       .catch((e) => { if (tick === planTick.current) setError(e.message) })
-  }, [staged, size, quality])
+  }, [staged, genId, size, levels, colour])
 
   const encode = async () => {
     setError(''); setSending(true)
@@ -312,13 +403,15 @@ function CallSend({ info }) {
     setRebuilt(null); setRebuildError('')
     try {
       const response = await tel.send({
-        image_id: staged.image_id, size, quality,
+        image_id: staged.image_id,
+        generation: genId, size, levels, colour,
         security_enabled: secure,
         caller: secure ? caller : null,
         receiver: secure ? receiver : null,
         pin: secure ? pin : null,
       })
       setTx(response)
+      onSent?.({ ...response, filename: file?.name })
       setFrom('tx')
       // the receiver starts from what the sender used; change it to try a wrong PIN
       setKeyOn(secure); setKCaller(caller); setKReceiver(receiver); setKPin(pin)
@@ -353,6 +446,7 @@ function CallSend({ info }) {
       const source = from === 'rx' && rx ? rx : tx
       const response = await tel.receive({
         session_id: source.session_id,
+        reference_id: tx.session_id,
         security_enabled: keyOn,
         caller: keyOn ? kCaller : null,
         receiver: keyOn ? kReceiver : null,
@@ -377,7 +471,7 @@ function CallSend({ info }) {
       <div className="sim-grid">
         <section className="module">
           <div className="module-head"><h2>Picture</h2></div>
-          <p className="module-hint">Colour is kept. The picture is shrunk and compressed before it goes on the call.</p>
+          <p className="module-hint">The picture is shrunk to the grid below before it goes on the call.</p>
 
           <div className="module-body">
             <div
@@ -423,30 +517,49 @@ function CallSend({ info }) {
           <div className="module-head"><h2>Settings</h2></div>
 
           <div className="module-body">
+            <div className="field">
+              <label className="field-label" htmlFor="tel-gen">Generation</label>
+              <select id="tel-gen" className="input" value={genId}
+                      onChange={(e) => switchGeneration(e.target.value)}>
+                {generations.map((g) => (
+                  <option key={g.id} value={g.id}>{g.id} — {g.tagline}</option>
+                ))}
+              </select>
+              <p className="field-note">{gen.summary}</p>
+            </div>
+
             <div className="call-pair">
               <div className="field">
-                <label className="field-label" htmlFor="tel-size">Longest side</label>
+                <label className="field-label" htmlFor="tel-size">Grid</label>
                 <select id="tel-size" className="input" value={size} onChange={(e) => setSize(+e.target.value)}>
-                  {(info?.sizes || [64, 96, 128, 160]).map((s) => <option key={s} value={s}>{s} px</option>)}
+                  {gen.sizes.map((v) => <option key={v} value={v}>{v} × {v}</option>)}
                 </select>
               </div>
               <div className="field">
-                <label className="field-label" htmlFor="tel-quality">WebP quality</label>
-                <select id="tel-quality" className="input" value={quality} onChange={(e) => setQuality(+e.target.value)}>
-                  {(info?.qualities || [30, 50, 70]).map((q) => <option key={q} value={q}>{q}</option>)}
+                <label className="field-label" htmlFor="tel-levels">Gray levels</label>
+                <select id="tel-levels" className="input" value={levels} onChange={(e) => setLevels(+e.target.value)}>
+                  {gen.levels.map((v) => <option key={v} value={v}>{v}</option>)}
                 </select>
               </div>
             </div>
 
+            <label className="switch">
+              <input type="checkbox" checked={colour} onChange={(e) => setColour(e.target.checked)} />
+              <span className="switch-box" aria-hidden="true" />
+              <span className="switch-text">Send in colour</span>
+            </label>
+            <p className="field-note">Colour sends three passes, so the call runs three times as long.</p>
+
             <dl className="call-readout">
-              <dt>On the wire</dt><dd>{plan ? `${plan.width} × ${plan.height}` : '—'}</dd>
-              <dt>WebP</dt><dd>{plan ? `${plan.webp_bytes} B` : '—'}</dd>
-              <dt>With parity</dt><dd>{plan ? `${plan.packet_bytes} B` : '—'}</dd>
+              <dt>On the wire</dt><dd>{plan ? `${plan.rows} × ${plan.columns}` : '—'}</dd>
+              <dt>Passes</dt><dd>{plan ? plan.channels : '—'}</dd>
               <dt>Call length</dt><dd>{plan ? `${plan.seconds.toFixed(1)} s` : '—'}</dd>
+              <dt>Survives GSM</dt><dd>{gen.lossy ? 'No, by design' : 'Yes'}</dd>
             </dl>
             <p className="field-note">
-              At about 100 bits a second, every byte costs 80&nbsp;ms of call. Smaller or lower
-              quality pictures make shorter calls.
+              {gen.lossy
+                ? 'Generation A is the one the codec damages. That damage is the point: it is what the restoration model is trained to undo.'
+                : 'Generation B decodes by argmax over sixteen tones, so a codec that flattens loudness leaves it untouched.'}
             </p>
 
             <hr className="module-rule" />
@@ -457,8 +570,8 @@ function CallSend({ info }) {
               <span className="switch-text">Lock this transmission</span>
             </label>
             <p className="field-note">
-              The numbers and PIN shuffle the protected bytes. Without them the bytes cannot be
-              repaired, and the receiver sees static.
+              The numbers and PIN shuffle the rows and columns, upstream of the modem, so the
+              scramble survives the call. Without them the receiver rebuilds static.
             </p>
             {secure && (
               <LockFields id="tel-send" caller={caller} receiver={receiver} pin={pin}
@@ -626,6 +739,11 @@ function CallSend({ info }) {
               </div>
             </div>
 
+            <RealCall
+              info={dialInfo} sip={sip} onSip={setSip} onDial={placeRealCall}
+              state={dialling} error={dialError} seconds={tx.report.seconds}
+            />
+
             <Rebuilt result={rebuilt} sentUrl={tx.sent_url} />
           </div>
         </section>
@@ -636,7 +754,96 @@ function CallSend({ info }) {
 
 /* ------------------------------------------------------------------------ */
 
-function CallReceive() {
+function RealCall({ info, sip, onSip, onDial, state, error, seconds }) {
+  /* The browser starts the call; pjsua places it. Linphone's own Python
+     bindings are not on PyPI and have to be compiled from the SDK source, and
+     none of that is needed: sip.linphone.org is an ordinary SIP registrar and
+     the app on the phone answers any SIP client. */
+  const ready = info?.pjsua && info?.configured
+  const busy = state?.state === 'dialling'
+
+  return (
+    <div className="module call-dial">
+      <div className="module-head">
+        <h2>Place a real call</h2>
+        {info && (
+          <span className={`filecard-tag ${ready ? '' : 'locked'}`}>
+            <span className={`led ${ready ? 'is-open' : 'is-locked'}`} aria-hidden="true" />
+            {ready ? 'Ready' : 'Not configured'}
+          </span>
+        )}
+      </div>
+
+      <div className="module-body">
+        {!ready && info?.message && (
+          <div className="alert alert-error"><p>{info.message}</p></div>
+        )}
+
+        <div className="field">
+          <label className="field-label" htmlFor="sip-target">
+            Your phone&rsquo;s SIP address
+          </label>
+          <input
+            id="sip-target" className="input mono" value={sip}
+            placeholder="sip:yourphone@sip.linphone.org"
+            onChange={(e) => onSip(e.target.value)}
+            disabled={!ready || busy}
+          />
+          <p className="field-note">
+            The second Linphone account, the one signed in on the phone &mdash;
+            not the one this server calls from
+            {info?.identity ? <> (<span className="mono">{info.identity}</span>)</> : null}.
+            This is SIP to SIP, so it never touches the phone network and costs
+            nothing.
+          </p>
+        </div>
+
+        <ol className="call-steps">
+          <li>Answer on the phone.</li>
+          <li><b>Mute the microphone</b> &mdash; Linphone records both directions,
+              so room noise would land on top of the tones.</li>
+          <li>Press <b>Record</b> in the call.</li>
+          <li>Start the call below and wait {Math.ceil(seconds)}&nbsp;s.</li>
+          <li>Stop recording, share the file back, and open the Receive tab.</li>
+        </ol>
+        <p className="field-note">
+          The recording has to be made on the phone: pjsua can only record its
+          own inbound leg, which is your muted microphone, not the tones the
+          phone received. No app can capture another app&rsquo;s call audio.
+        </p>
+
+        {state && (
+          <dl className="call-readout">
+            <dt>State</dt><dd>{state.state}</dd>
+            <dt>Target</dt><dd className="mono">{state.target}</dd>
+            <dt>Elapsed</dt>
+            <dd>{state.elapsed ?? state.seconds ?? 0}&nbsp;s of {state.expected_seconds}&nbsp;s</dd>
+            {state.negotiated && <><dt>Codec</dt><dd className="mono">{state.negotiated}</dd></>}
+          </dl>
+        )}
+        {state?.state === 'done' && (
+          <p className="field-note">
+            Check the codec line above. If pjsua fell back to PCMU the line was
+            nearly transparent, and a clean decode over it proves little.
+          </p>
+        )}
+        {state?.error && <div className="alert alert-error"><p>{state.error}</p></div>}
+      </div>
+
+      <div className="module-foot">
+        <button type="button" className="btn btn-primary"
+                onClick={onDial} disabled={!ready || busy || !sip.trim()}>
+          {busy ? 'On the line…' : 'Call and play'}
+        </button>
+        {error && <div className="alert alert-error"><p>{error}</p></div>}
+      </div>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
+
+function CallReceive({ reference }) {
   const [file, setFile] = useState(null)
   const [found, setFound] = useState(null)
   const [wave, setWave] = useState(null)
@@ -666,10 +873,16 @@ function CallReceive() {
     setFile(f); setError(''); setRebuilt(null); setFound(null); setWave(null)
     setSelected(false); setBusy(true)
     try {
-      const response = await tel.inspect(f)
+      const uploaded = await tel.upload(f)
+      /* A recording carries no header of its own. If the Send tab has a
+         transmission open, inspect against its settings; otherwise say so. */
+      const response = reference
+        ? { ...uploaded, ...(await tel.inspect({
+            session_id: uploaded.session_id, reference_id: reference.session_id,
+          })) }
+        : uploaded
       setFound(response)
-      setKeyOn(response.found && !response.opens_without_key)
-      setWave(await tel.waveform(response.session_id))
+      setWave(await tel.waveform(uploaded.session_id))
     } catch (e) {
       setError(e.message)
     } finally {
@@ -682,6 +895,7 @@ function CallReceive() {
     try {
       const response = await tel.receive({
         session_id: found.session_id,
+        reference_id: reference?.session_id,
         security_enabled: keyOn,
         caller: keyOn ? caller : null,
         receiver: keyOn ? receiver : null,
@@ -696,7 +910,7 @@ function CallReceive() {
   }
 
   const stage = rebuilt ? 4 : found ? (keyOn ? 2 : 3) : file ? 1 : 0
-  const alertKind = !found?.found ? 'alert-error' : found.opens_without_key ? 'alert-ok' : 'alert-error'
+  const alertKind = found?.found ? 'alert-ok' : 'alert-error'
 
   return (
     <>
@@ -723,25 +937,36 @@ function CallReceive() {
                   <p className="drop-hint">{(file.size / 1024).toFixed(0)} KB</p>
                   <label className="btn btn-ghost drop-btn">
                     Load a different file
-                    <input type="file" accept="audio/wav,.wav" hidden onChange={(e) => take(e.target.files?.[0])} />
+                    <input type="file" accept="audio/*,.wav,.mka,.m4a,.caf,.mp4" hidden onChange={(e) => take(e.target.files?.[0])} />
                   </label>
                 </>
               ) : (
                 <>
                   <p className="drop-title">Drop a call recording here</p>
                   <p className="drop-hint">
-                    A tx.wav from the Send tab, or the rx.wav recorded off a real call. Any sample
-                    rate works; it is brought to 8&nbsp;kHz first.
+                    A tx.wav from the Send tab, or a recording made off a real call &mdash; .wav,
+                    and .mka/.m4a/.caf where ffmpeg is installed. Any sample rate works; it is
+                    brought to 8&nbsp;kHz first.
                   </p>
                   <label className="btn btn-primary drop-btn">
                     Browse files
-                    <input type="file" accept="audio/wav,.wav" hidden onChange={(e) => take(e.target.files?.[0])} />
+                    <input type="file" accept="audio/*,.wav,.mka,.m4a,.caf,.mp4" hidden onChange={(e) => take(e.target.files?.[0])} />
                   </label>
                 </>
               )}
             </div>
 
-            {busy && <p className="field-note">Listening for the preamble…</p>}
+            {busy && <p className="field-note">Reading the recording…</p>}
+
+            {file && !reference && !busy && (
+              <div className="alert alert-error call-alert">
+                <p>
+                  A recording carries no header, so its grid, generation and level count have to
+                  come from the transmission it is a recording of. Encode one on the Send tab
+                  first, then come back — this page keeps it.
+                </p>
+              </div>
+            )}
 
             {found && (
               <div className="rcv-stack">
@@ -756,8 +981,11 @@ function CallReceive() {
                 {found.found && (
                   <div className="unlock">
                     <dl className="call-readout">
-                      <dt>Packet</dt><dd>{found.packet_bytes} B</dd>
+                      <dt>Generation</dt><dd>{found.generation ?? '—'}</dd>
                       <dt>Starts at</dt><dd>{found.offset_seconds} s</dd>
+                      <dt>Preamble</dt>
+                      <dd>{found.preamble_score == null ? 'pilots' : found.preamble_score}</dd>
+                      <dt>Complete</dt><dd>{found.truncated ? 'Cut short' : 'Yes'}</dd>
                     </dl>
 
                     <label className="switch">

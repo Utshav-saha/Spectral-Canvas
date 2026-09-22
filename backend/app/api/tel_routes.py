@@ -1,5 +1,8 @@
 """Endpoints for the voice-call page. Everything lives under /api/tel so the
-original /api routes stay exactly as the Send and Receive pages expect."""
+original /api routes stay exactly as the Send and Receive pages expect.
+
+Two generations ship here, A and B. Generation C was cut - see
+spectral/tel/rejected/README.md."""
 
 from typing import Optional
 
@@ -13,11 +16,15 @@ from app.config import MAX_AUDIO_UPLOAD_BYTES, MAX_UPLOAD_BYTES
 
 router = APIRouter(prefix="/api/tel")
 
+AUDIO_KINDS = {"tel-send", "tel-call", "tel-upload"}
+
 
 class SendBody(BaseModel):
     image_id: str
-    size: int = 96
-    quality: int = 50
+    generation: str = "A"
+    size: int = 24
+    levels: int = 4
+    colour: bool = False
     security_enabled: bool = False
     caller: Optional[str] = None
     receiver: Optional[str] = None
@@ -33,10 +40,26 @@ class CallBody(BaseModel):
 
 class ReceiveBody(BaseModel):
     session_id: str
+    # which transmission this audio is a recording of. A recording carries no
+    # header, so its geometry has to come from the send session.
+    reference_id: Optional[str] = None
     security_enabled: bool = False
     caller: Optional[str] = None
     receiver: Optional[str] = None
     pin: Optional[str] = None
+
+
+class DialBody(BaseModel):
+    session_id: str
+    # a SIP address, not a phone number: this reaches the Linphone app on the
+    # phone over SIP, and never touches the PSTN
+    target: str
+    codec: Optional[str] = None
+
+
+class InspectBody(BaseModel):
+    session_id: str
+    reference_id: Optional[str] = None
 
 
 def _session(session_id, kinds, missing="That transmission has expired. Send it again."):
@@ -44,6 +67,15 @@ def _session(session_id, kinds, missing="That transmission has expired. Send it 
     if not session or session.get("kind") not in kinds:
         raise HTTPException(404, missing)
     return session
+
+
+def _reference(body, session):
+    """The metadata to decode with: the named send, or this session's own."""
+    if getattr(body, "reference_id", None):
+        ref = _session(body.reference_id, {"tel-send"},
+                       "That transmission has expired. Send it again.")
+        return ref.get("metadata"), ref.get("sent_array")
+    return session.get("metadata"), session.get("sent_array")
 
 
 async def _read_upload(file, limit=MAX_UPLOAD_BYTES):
@@ -61,12 +93,13 @@ def info():
 
 @router.post("/stage")
 async def stage(file: UploadFile = File(...)):
-    """Hold the picture server-side so changing size or quality can re-plan
-    without uploading it again."""
+    """Hold the picture server-side so changing the generation or the grid can
+    re-plan without uploading it again."""
     raw = await _read_upload(file)
     try:
         image = tel.open_image(raw)
-        plan = tel.plan(raw, tel.image_webp.DEFAULT_SIZE, tel.image_webp.DEFAULT_QUALITY)
+        plan = tel.plan("A", tel.GENERATIONS["A"]["default_size"],
+                        tel.GENERATIONS["A"]["default_levels"], False)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
@@ -75,20 +108,22 @@ async def stage(file: UploadFile = File(...)):
             "plan": plan}
 
 
-@router.get("/plan/{image_id}")
-def plan(image_id: str, size: int = 96, quality: int = 50):
-    session = _session(image_id, {"tel-image"}, "That picture has expired. Choose it again.")
+@router.get("/plan")
+def plan(generation: str = "A", size: int = 24, levels: int = 4,
+         colour: bool = False):
     try:
-        return tel.plan(session["image_bytes"], size, quality)
+        return tel.plan(generation, size, levels, colour)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
 
 @router.post("/send")
 def send(body: SendBody):
-    source = _session(body.image_id, {"tel-image"}, "That picture has expired. Choose it again.")
+    source = _session(body.image_id, {"tel-image"},
+                      "That picture has expired. Choose it again.")
     try:
-        result = tel.run_send(source["image_bytes"], body.size, body.quality,
+        result = tel.run_send(source["image_bytes"], body.generation, body.size,
+                              body.levels, body.colour,
                               locked=body.security_enabled, caller=body.caller,
                               receiver=body.receiver, pin=body.pin)
     except ValueError as exc:
@@ -99,6 +134,7 @@ def send(body: SendBody):
     session_id = session_store.create({
         "kind": "tel-send",
         "audio": result["audio"],
+        "metadata": result["metadata"],
         "sample_rate": tel.SAMPLE_RATE,
         "wav_bytes": result["wav_bytes"],
         "sent_png": result["sent_png"],
@@ -106,6 +142,7 @@ def send(body: SendBody):
     })
     return {
         "session_id": session_id,
+        "generation": body.generation,
         "report": result["report"],
         "stats": result["stats"],
         "locked": body.security_enabled,
@@ -127,6 +164,8 @@ def call(body: CallBody):
     session_id = session_store.create({
         "kind": "tel-call",
         "audio": result["audio"],
+        # a simulated call keeps the sender's settings, so it decodes on its own
+        "metadata": source.get("metadata"),
         "sample_rate": tel.SAMPLE_RATE,
         "wav_bytes": result["wav_bytes"],
         "sent_array": source["sent_array"],
@@ -141,14 +180,13 @@ def call(body: CallBody):
     }
 
 
-@router.post("/inspect")
-async def inspect(file: UploadFile = File(...)):
+@router.post("/upload")
+async def upload(file: UploadFile = File(...)):
+    """A recording of a real call. It carries no header, so it has to be
+    matched to the send it came from before it can be rebuilt."""
     raw = await _read_upload(file, MAX_AUDIO_UPLOAD_BYTES)
     try:
-        # read_any_audio, not read_any_wav: a recording made on a phone is
-        # Matroska (.mka), which needs ffmpeg
         audio, source = tel.read_any_audio(raw, file.filename)
-        result = tel.run_inspect(audio)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:
@@ -161,17 +199,34 @@ async def inspect(file: UploadFile = File(...)):
         "sample_rate": tel.SAMPLE_RATE,
         "wav_bytes": tel.to_wav_bytes(audio),
     })
-    return {"session_id": session_id, **source, **result}
+    return {"session_id": session_id, **source,
+            **tel.run_inspect(audio, None)}
+
+
+@router.post("/inspect")
+def inspect(body: InspectBody):
+    session = _session(body.session_id, AUDIO_KINDS,
+                       "That audio has expired. Load it again.")
+    metadata, _ = _reference(body, session)
+    try:
+        return {"session_id": body.session_id,
+                **tel.run_inspect(session["audio"], metadata)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(400, f"That audio could not be inspected: {exc}")
 
 
 @router.post("/receive")
 def receive(body: ReceiveBody):
-    session = _session(body.session_id, {"tel-send", "tel-call", "tel-upload"},
+    session = _session(body.session_id, AUDIO_KINDS,
                        "That audio has expired. Load it again.")
+    metadata, sent_array = _reference(body, session)
     try:
-        result = tel.run_receive(session["audio"], locked=body.security_enabled,
-                                 caller=body.caller, receiver=body.receiver,
-                                 pin=body.pin, sent_array=session.get("sent_array"))
+        result = tel.run_receive(session["audio"], metadata,
+                                 locked=body.security_enabled, caller=body.caller,
+                                 receiver=body.receiver, pin=body.pin,
+                                 sent_array=sent_array)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:
@@ -182,9 +237,56 @@ def receive(body: ReceiveBody):
             "image_url": f"/api/tel/recovered/{body.session_id}", **result}
 
 
+@router.get("/dial/status")
+def dial_status():
+    """Whether this server can place a call at all, and why not if it cannot."""
+    try:
+        from voip import dial
+    except ImportError as exc:
+        return {"pjsua": False, "configured": False, "identity": None,
+                "registrar": None, "message": f"The call module is unavailable: {exc}"}
+    return dial.status()
+
+
+@router.post("/dial")
+def dial(body: DialBody):
+    """Place a real SIP call and play the transmission into it.
+
+    Returns as soon as pjsua is dialling; the page polls /dial/{call_id}.
+    Credentials are read from the server's environment, never from this body.
+    """
+    session = _session(body.session_id, {"tel-send"})
+    try:
+        from voip import dial as dialer
+        from voip.config import VoipDependencyError, VoipError
+    except ImportError as exc:
+        raise HTTPException(503, f"The call module is unavailable: {exc}")
+
+    try:
+        call_id = dialer.place(session["audio"], body.target, codec=body.codec)
+    except VoipDependencyError as exc:
+        raise HTTPException(503, str(exc))
+    except VoipError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(500, f"The call could not be placed: {exc}")
+
+    return {"call_id": call_id, "session_id": body.session_id,
+            **(dialer.progress(call_id) or {})}
+
+
+@router.get("/dial/{call_id}")
+def dial_progress(call_id: str):
+    from voip import dial as dialer
+    found = dialer.progress(call_id)
+    if found is None:
+        raise HTTPException(404, "No such call.")
+    return {"call_id": call_id, **found}
+
+
 @router.get("/audio/{session_id}")
 def audio(session_id: str):
-    session = _session(session_id, {"tel-send", "tel-call", "tel-upload"})
+    session = _session(session_id, AUDIO_KINDS)
     name = "rx.wav" if session["kind"] == "tel-call" else "tx.wav"
     return Response(content=session["wav_bytes"], media_type="audio/wav",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
@@ -192,7 +294,7 @@ def audio(session_id: str):
 
 @router.get("/waveform/{session_id}")
 def waveform(session_id: str, buckets: int = 1000):
-    session = _session(session_id, {"tel-send", "tel-call", "tel-upload"})
+    session = _session(session_id, AUDIO_KINDS)
     return tel.waveform_payload(session["audio"], max(100, min(buckets, 2000)))
 
 

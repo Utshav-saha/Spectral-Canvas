@@ -100,3 +100,18 @@
   .call-modes { display: flex; }
   .call-compare.is-pair { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ---- placing a real call ---------------------------------------------- */
+
+.call-dial { margin-top: 24px; }
+
+.call-steps {
+  margin: 16px 0 10px;
+  padding-left: 20px;
+  color: var(--ink-2);
+  font-size: var(--t-sm);
+  display: grid;
+  gap: 5px;
+}
+
+.call-steps b { color: var(--ink); }

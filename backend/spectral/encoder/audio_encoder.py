@@ -9,37 +9,44 @@ from input.image_preprocessor import process_image
 from common.security import encrypt, generate_mask
 import json
 
+# def encode_activation_matrix(frame_samples, row_frequencies, activation_to_encode, t):
+
+#     rows = activation_to_encode.shape[0]
+#     cols = activation_to_encode.shape[1]
+#     # 1 column = 1 frame = frame_samples
+#     # each row now contributes a sine scaled by that pixel's brightness
+#     # x[n] = a1*sin(2*pi*f1*t) + a2*sin(2*pi*f2*t) + ...
+
+#     frames = []
+#     window = np.hanning(frame_samples)
+
+#     for idx in range(cols):
+
+#         # amplitude of every row for this column (0.0 = white, 1.0 = black)
+#         amp = activation_to_encode[:, idx]
+#         frame = np.zeros_like(t, dtype=np.float64)
+
+#         for row in range(rows):
+
+#             # amp = 0 means white , white er jonno no sound
+#             if amp[row] > 0:
+#                 frame += amp[row] * np.sin(2 * np.pi * row_frequencies[row] * t)
+
+#         # sharp transitions = Spectral Leakage
+#         # A Hann window smoothly changes frame amplitude like adding fade-in and fade-out to each frame 
+#         frame *= window
+#         frames.append(frame)
+
+
+#     final_audio = np.concatenate(frames)
+#     return final_audio
+
+
 def encode_activation_matrix(frame_samples, row_frequencies, activation_to_encode, t):
-
-    rows = activation_to_encode.shape[0]
-    cols = activation_to_encode.shape[1]
-    # 1 column = 1 frame = frame_samples
-    # each row now contributes a sine scaled by that pixel's brightness
-    # x[n] = a1*sin(2*pi*f1*t) + a2*sin(2*pi*f2*t) + ...
-
-    frames = []
-    window = np.hanning(frame_samples)
-
-    for idx in range(cols):
-
-        # amplitude of every row for this column (0.0 = white, 1.0 = black)
-        amp = activation_to_encode[:, idx]
-        frame = np.zeros_like(t, dtype=np.float64)
-
-        for row in range(rows):
-
-            # amp = 0 means white , white er jonno no sound
-            if amp[row] > 0:
-                frame += amp[row] * np.sin(2 * np.pi * row_frequencies[row] * t)
-
-        # sharp transitions = Spectral Leakage
-        # A Hann window smoothly changes frame amplitude like adding fade-in and fade-out to each frame 
-        frame *= window
-        frames.append(frame)
-
-
-    final_audio = np.concatenate(frames)
-    return final_audio
+    sine_table = np.sin(2 * np.pi * np.outer(row_frequencies, t))   # (rows, frame_samples), computed once
+    frames = activation_to_encode.T @ sine_table                    # (cols, rows) @ (rows, frame_samples)
+    frames *= np.hanning(frame_samples)                             # broadcasting: window applied to every frame
+    return frames.ravel()                                           # frames back to back
 
 def encode(image_path, target_width=16, target_height=16,
            output_file='output.wav',

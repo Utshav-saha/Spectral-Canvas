@@ -6,6 +6,7 @@ from fastapi.responses import Response
 
 from app.schemas.models import EncodeParams
 from app.services import pipeline
+from app.services import channel_lab
 from app.storage import session_store
 from app.config import (
     MAX_UPLOAD_BYTES, MAX_TEXT_CHARS, DEFAULTS, TRACKS, DEFAULT_TRACK,
@@ -213,6 +214,88 @@ def decode_endpoint(body: dict):
         "decrypted": result["decrypted"],
         "metrics": result["metrics"],
     }
+
+
+@router.get("/channel/effects")
+def channel_effects():
+    """The catalogue the experiments page builds itself from, so the UI and
+    the validator cannot drift apart."""
+    return channel_lab.catalogue()
+
+
+@router.post("/channel")
+def channel_endpoint(body: dict):
+    """Put a transmission through a channel and measure what it cost.
+
+    Needs a session from /api/encode, because the experiment is only meaningful
+    against the activation that was actually sent.
+    """
+    session = session_store.get(body.get("session_id", ""))
+    if not session or session.get("kind") != "encode":
+        raise HTTPException(404, "That transmission has expired. Send it again.")
+
+    try:
+        result = channel_lab.run_channel(
+            session, body.get("effects") or [],
+            caller=body.get("caller"), receiver=body.get("receiver"),
+            pin=body.get("pin"))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(500, f"The channel run failed: {exc}")
+
+    # The clean decode is the honest baseline: it isolates what the channel
+    # did from what the encoder's own quantisation did. Decoded once and kept
+    # on the session, because it does not change between experiments.
+    baseline = session.get("clean_image")
+    if baseline is None:
+        clean = pipeline.run_decode(
+            session["audio"], session["metadata"],
+            caller=body.get("caller"), receiver=body.get("receiver"),
+            pin=body.get("pin"), source_activation=session.get("activation"))
+        baseline = clean["image_array"]
+        session_store.update(body["session_id"], {
+            "clean_image": baseline, "clean_metrics": clean["metrics"]})
+
+    run_id = session_store.create({
+        "kind": "channel",
+        "audio": result["audio"],
+        "metadata": session["metadata"],
+        "sample_rate": result["sample_rate"],
+        "recovered_png": result["png"],
+    })
+
+    return {
+        "run_id": run_id,
+        "session_id": body["session_id"],
+        "chain": result["chain"],
+        "description": result["description"],
+        "image_url": f"/api/recovered/{run_id}",
+        "audio_url": f"/api/channel/audio/{run_id}",
+        "metrics": result["metrics"],
+        "baseline_metrics": session_store.get(body["session_id"]).get("clean_metrics"),
+        # per-row error: one image row is one frequency, so this is where an
+        # LTI channel's fingerprint actually shows up
+        "row_error": channel_lab.row_profile(baseline, result["image_array"]),
+        "stats": result["stats"],
+        "clean_stats": result["clean_stats"],
+        "rows": session["metadata"]["rows"],
+        "columns": session["metadata"]["columns"],
+        "mode": session["metadata"].get("mode", "L"),
+    }
+
+
+@router.get("/channel/audio/{run_id}")
+def channel_audio(run_id: str):
+    session = session_store.get(run_id)
+    if not session or session.get("kind") != "channel":
+        raise HTTPException(404, "That channel run has expired. Run it again.")
+    from spectral.common.wav_container import write_wav_bytes
+    wav = write_wav_bytes(session["sample_rate"], session["audio"],
+                          session["metadata"])
+    return Response(content=wav, media_type="audio/wav",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="channel_{run_id}.wav"'})
 
 
 @router.get("/recovered/{session_id}")

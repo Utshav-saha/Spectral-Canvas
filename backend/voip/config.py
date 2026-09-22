@@ -36,7 +36,10 @@ HEADER_BITS = 16
 # Generation B header (see framing.py)
 # --------------------------------------------------------------------------
 
-GEN_B_MARKER = 0xF               # top 4 bits; a Gen-C packet would need >= 61440 bytes
+# Every Generation B transmission sets the top 4 bits. Generation C used the
+# values below this marker as a raw byte count; it was cut, so a header that
+# does not carry the marker is simply not a transmission we sent.
+GEN_B_MARKER = 0xF
 GEN_B_MAX_SIDE = 32              # 5 bits each for rows-1 and cols-1
 LEVEL_CODES = {2: 0, 4: 1, 16: 2, 256: 3}
 CODE_LEVELS = {v: k for k, v in LEVEL_CODES.items()}
@@ -66,12 +69,12 @@ WEAK_MARGIN_THRESHOLD = 1.6
 # Transmission defaults
 # --------------------------------------------------------------------------
 
-DEFAULT_GENERATION = "C"
-DEFAULT_SIZE = 128               # Gen-C longest side, px
-DEFAULT_QUALITY = 50             # Gen-C WebP quality
-DEFAULT_GRID = 16                # Gen-B square side
-DEFAULT_LEVELS = 4               # Gen-B gray levels
-DEFAULT_PARITY = 32              # Reed-Solomon parity bytes per 255-byte block
+# Generation A is the default: it is the one the codec damages, which is what
+# the restoration model is trained on, and it is cheap enough on the wire to
+# retry. Generation B is the exact-but-small fallback.
+DEFAULT_GENERATION = "A"
+DEFAULT_GRID = 24                # square side
+DEFAULT_LEVELS = 4               # gray levels
 
 # Digital silence around the transmission. The phone's Record button and the
 # SIP audio path both need a moment to settle; two seconds costs nothing and

@@ -1,10 +1,13 @@
-"""/api/tel/inspect against the recordings a real call actually produces.
+"""/api/tel against the recordings a real call actually produces.
 
-Two things are being protected here. First, that the existing Send/Receive flow
-on the Call page is untouched -- the WAV path has to behave exactly as it did.
-Second, that the two reasons a genuine phone recording used to bounce are gone:
-it is Matroska rather than WAV, and its lead-in is far longer than the modem's
-own three-second preamble search.
+Three things are protected here. That a recording made on a phone gets in at
+all -- it is Matroska rather than WAV, and its lead-in is far longer than the
+modem's own three-second preamble search. That both shipping generations make
+the round trip through the HTTP layer. And that a recording is matched to the
+transmission it came from, which is now required rather than optional:
+Generation A carries no header on the wire and Generation B's header describes
+the grid but not which send it belongs to, so the geometry comes from the send
+session either way.
 """
 
 import io
@@ -14,9 +17,10 @@ import subprocess
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
-from voip import encode, simulate
-from voip.audio_io import to_wav_bytes, write_int16_wav
+from voip import simulate
+from voip.audio_io import to_wav_bytes
 
 from conftest import needs_ffmpeg
 
@@ -30,137 +34,182 @@ def client():
 
 
 @pytest.fixture(scope="module")
-def recorded():
-    """A Generation C transmission put through a call with a long lead-in."""
-    from PIL import Image
-
+def picture():
     canvas = np.zeros((96, 96, 3), np.uint8)
     canvas[:48] = (220, 60, 60)
     canvas[48:] = (40, 80, 200)
-    source = io.BytesIO()
-    Image.fromarray(canvas, "RGB").save(source, "PNG")
-
-    prepared = encode.prepare(source=source.getvalue(), generation="C",
-                              size=64, quality=50)
-    received, _ = simulate.simulate(prepared.audio, lead_seconds=LEAD,
-                                    gsm=False, seed=1)
-    return received, prepared
+    buf = io.BytesIO()
+    Image.fromarray(canvas, "RGB").save(buf, "PNG")
+    return buf.getvalue()
 
 
-def post(client, name, data):
-    return client.post("/api/tel/inspect", files={"file": (name, data, "application/octet-stream")})
+def staged(client, picture):
+    response = client.post("/api/tel/stage",
+                           files={"file": ("in.png", picture, "image/png")})
+    assert response.status_code == 200, response.text
+    return response.json()["image_id"]
 
 
-# --------------------------------------------------------------------------
-# The WAV path must not have moved
-# --------------------------------------------------------------------------
-
-def test_a_wav_still_inspects(client, recorded):
-    audio, prepared = recorded
-    response = post(client, "rx.wav", to_wav_bytes(audio))
-    assert response.status_code == 200
-
+def sent(client, picture, generation="A", size=24, levels=4):
+    """Encode through the API and put the audio through a long-lead-in call."""
+    response = client.post("/api/tel/send", json={
+        "image_id": staged(client, picture), "generation": generation,
+        "size": size, "levels": levels, "colour": False,
+    })
+    assert response.status_code == 200, response.text
     body = response.json()
-    assert body["found"] is True
-    assert body["packet_bytes"] == prepared.manifest["payload"]["packet_bytes"]
-    # the fields the Call page already reads
-    for key in ("session_id", "found", "packet_bytes", "offset_seconds",
-                "opens_without_key", "message", "stats"):
-        assert key in body
+
+    audio = client.get(body["audio_url"]).content
+    from voip.audio_io import load_audio_bytes  # noqa: F401  (import check)
+    from app.services.tel_pipeline import read_any_wav
+    samples, _ = read_any_wav(audio)
+    received, _ = simulate.simulate(samples, lead_seconds=LEAD, gsm=False, seed=1)
+    return body, received
 
 
-def test_a_long_lead_in_is_now_found(client, recorded):
-    """Before this change fsk.read_header only searched the first 3 seconds,
-    so a recording that starts 30 seconds in came back found: false."""
-    audio, _ = recorded
-    body = post(client, "rx.wav", to_wav_bytes(audio)).json()
-
-    assert body["found"] is True
-    assert body["offset_seconds"] > LEAD
-    assert body["preamble_score"] > 0.5
+def upload(client, name, data):
+    return client.post("/api/tel/upload",
+                       files={"file": (name, data, "application/octet-stream")})
 
 
-def test_noise_is_still_rejected(client):
-    noise = np.random.default_rng(2).normal(0.0, 0.1, 25 * 8000)
-    body = post(client, "noise.wav", to_wav_bytes(noise)).json()
+# --------------------------------------------------------------------------
+# Getting a recording in
+# --------------------------------------------------------------------------
+
+def test_a_wav_uploads(client, picture):
+    _, received = sent(client, picture)
+    response = upload(client, "rx.wav", to_wav_bytes(received))
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["session_id"]
+    # nothing to match it against yet, so it cannot claim to have found one
     assert body["found"] is False
-    assert "No call transmission" in body["message"]
-
-
-def test_inspect_reports_the_new_diagnostics(client, recorded):
-    audio, _ = recorded
-    body = post(client, "rx.wav", to_wav_bytes(audio)).json()
-    assert body["preamble_score"] is not None
-    assert body["weak_symbols"] is not None
-    assert body["truncated"] is False
-
-
-def test_a_truncated_recording_is_flagged(client, recorded):
-    audio, _ = recorded
-    short = audio[:len(audio) - int(10.0 * 8000)]
-    body = post(client, "short.wav", to_wav_bytes(short)).json()
-    if body["found"]:
-        assert body["truncated"] is True
-        assert "stops before it ends" in body["message"]
-
-
-# --------------------------------------------------------------------------
-# What the phone actually writes
-# --------------------------------------------------------------------------
-
-@needs_ffmpeg
-@pytest.mark.parametrize("name,args", [
-    ("call.mka", ["-c:a", "libopus", "-b:a", "64k"]),
-    ("call.m4a", ["-c:a", "aac", "-b:a", "96k"]),
-])
-def test_a_phone_recording_inspects(client, recorded, tmp_path, name, args):
-    """Linphone's in-call recorder writes Matroska; scipy cannot open it."""
-    audio, prepared = recorded
-    wav = str(tmp_path / "src.wav")
-    write_int16_wav(wav, audio)
-    target = str(tmp_path / name)
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", wav, *args, target],
-                   check=True, capture_output=True)
-
-    body = post(client, name, open(target, "rb").read()).json()
-    assert body["found"] is True
-    assert body["packet_bytes"] == prepared.manifest["payload"]["packet_bytes"]
-
-
-@needs_ffmpeg
-def test_a_phone_recording_rebuilds_the_picture(client, recorded, tmp_path):
-    """The whole point: drop the .mka into the Receive tab and get the picture."""
-    audio, prepared = recorded
-    wav = str(tmp_path / "src.wav")
-    write_int16_wav(wav, audio)
-    mka = str(tmp_path / "call.mka")
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", wav,
-                    "-c:a", "libopus", "-b:a", "64k", mka],
-                   check=True, capture_output=True)
-
-    inspected = post(client, "call.mka", open(mka, "rb").read()).json()
-    assert inspected["found"] and inspected["opens_without_key"]
-
-    rebuilt = client.post("/api/tel/receive",
-                          json={"session_id": inspected["session_id"]})
-    assert rebuilt.status_code == 200
-    body = rebuilt.json()
-    assert body["ok"] is True
-    assert (body["width"], body["height"]) == (
-        prepared.manifest["payload"]["width"], prepared.manifest["payload"]["height"])
-    assert body["offset_seconds"] > LEAD, \
-        "the reported offset must be where the preamble sits in the original recording"
-
-    image = client.get(body["image_url"])
-    assert image.status_code == 200
-    assert image.headers["content-type"] == "image/png"
+    assert "transmission" in body["message"]
 
 
 def test_an_unreadable_file_is_a_400_not_a_500(client):
-    response = post(client, "notes.txt", b"this is not audio at all")
+    response = upload(client, "rx.wav", b"this is not audio")
     assert response.status_code == 400
     assert "detail" in response.json()
 
 
 def test_an_empty_upload_is_refused(client):
-    assert post(client, "empty.wav", b"").status_code == 400
+    response = upload(client, "rx.wav", b"")
+    assert response.status_code == 400
+
+
+# --------------------------------------------------------------------------
+# Matching it to the send it came from
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("generation,size", [("A", 24), ("B", 16)])
+def test_a_long_lead_in_is_found_for_both_generations(client, picture,
+                                                      generation, size):
+    """30 seconds of lead-in is the case the modem's own 3-second preamble
+    search cannot reach, and the reason voip.sync exists."""
+    body, received = sent(client, picture, generation, size)
+    session = upload(client, "rx.wav", to_wav_bytes(received)).json()["session_id"]
+
+    response = client.post("/api/tel/inspect", json={
+        "session_id": session, "reference_id": body["session_id"]})
+    assert response.status_code == 200, response.text
+    found = response.json()
+
+    assert found["found"] is True
+    assert found["generation"] == generation
+    assert found["truncated"] is False
+    assert LEAD <= found["offset_seconds"] <= LEAD + 4.0
+
+
+@pytest.mark.parametrize("generation,size", [("A", 24), ("B", 16)])
+def test_a_recording_rebuilds_the_picture(client, picture, generation, size):
+    body, received = sent(client, picture, generation, size)
+    session = upload(client, "rx.wav", to_wav_bytes(received)).json()["session_id"]
+
+    response = client.post("/api/tel/receive", json={
+        "session_id": session, "reference_id": body["session_id"]})
+    assert response.status_code == 200, response.text
+    result = response.json()
+
+    assert result["ok"] is True
+    assert result["generation"] == generation
+    assert (result["rows"], result["columns"]) == (size, size)
+    assert client.get(result["image_url"]).status_code == 200
+
+    # No codec in this rehearsal, so both generations should come back clean.
+    # What GSM does to Generation A is measured in test_voip_channel.py, which
+    # is the only place a real codec is in the path.
+    assert result["match"]["exact_fraction"] > 0.9
+
+
+def test_rebuilding_without_a_reference_is_refused(client, picture):
+    _, received = sent(client, picture)
+    session = upload(client, "rx.wav", to_wav_bytes(received)).json()["session_id"]
+
+    response = client.post("/api/tel/receive", json={"session_id": session})
+    assert response.status_code == 400
+    assert "recording of" in response.json()["detail"]
+
+
+def test_noise_finds_nothing(client, picture):
+    body, _ = sent(client, picture, "B", 16)
+    noise = np.random.default_rng(5).normal(0.0, 0.05, 20 * 8000)
+    session = upload(client, "rx.wav", to_wav_bytes(noise)).json()["session_id"]
+
+    found = client.post("/api/tel/inspect", json={
+        "session_id": session, "reference_id": body["session_id"]}).json()
+    assert found["found"] is False
+
+
+# --------------------------------------------------------------------------
+# The container a phone actually hands you
+# --------------------------------------------------------------------------
+
+def _transcode(source, target, *args):
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", source,
+                    *args, target], check=True)
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("name,args", [
+    ("call.mka", ("-c:a", "libopus", "-b:a", "64k")),
+    ("call.m4a", ("-c:a", "aac", "-b:a", "96k")),
+])
+def test_a_phone_recording_inspects(client, picture, tmp_path, name, args):
+    """Linphone's in-call recorder writes Matroska, which scipy cannot open."""
+    body, received = sent(client, picture, "B", 16)
+
+    wav = str(tmp_path / "rx.wav")
+    from voip.audio_io import write_int16_wav
+    write_int16_wav(wav, received)
+    target = str(tmp_path / name)
+    _transcode(wav, target, *args)
+
+    with open(target, "rb") as handle:
+        session = upload(client, name, handle.read())
+    assert session.status_code == 200, session.text
+
+    found = client.post("/api/tel/inspect", json={
+        "session_id": session.json()["session_id"],
+        "reference_id": body["session_id"]}).json()
+    assert found["found"] is True
+
+
+@needs_ffmpeg
+def test_a_phone_recording_rebuilds_the_picture(client, picture, tmp_path):
+    body, received = sent(client, picture, "B", 16)
+
+    wav = str(tmp_path / "rx.wav")
+    from voip.audio_io import write_int16_wav
+    write_int16_wav(wav, received)
+    mka = str(tmp_path / "call.mka")
+    _transcode(wav, mka, "-c:a", "libopus", "-b:a", "64k")
+
+    with open(mka, "rb") as handle:
+        session = upload(client, "call.mka", handle.read()).json()["session_id"]
+
+    result = client.post("/api/tel/receive", json={
+        "session_id": session, "reference_id": body["session_id"]}).json()
+    assert result["ok"] is True
+    assert os.path.basename(result["image_url"])

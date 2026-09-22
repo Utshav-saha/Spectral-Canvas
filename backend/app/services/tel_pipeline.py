@@ -1,11 +1,19 @@
-"""Glue between the HTTP layer and the telephony path in spectral/tel/.
+"""Glue between the HTTP layer and the call path in spectral/tel/.
 
-The picture travels the way image_webp.py sends it over a voice call:
-WebP -> Reed-Solomon -> keyed byte shuffle -> 16-FSK at 8 kHz. Nothing here
-reimplements the modem; it only moves bytes in and out of those modules.
+Two generations go out over a voice line, both through `spectral/tel/
+call_track.py`:
 
-The tel modules use bare sibling imports (`import fsk_codec as fsk`), so their
-directory goes on sys.path before they are imported.
+    A   parallel multitone with pilot tones. Amplitude carries the pixel, so a
+        speech codec damages it - about 67% of pixels exact through simulated
+        GSM. Fast on the wire (one frame per column), so it carries the bigger
+        picture. The damage is the input the restoration model is trained on.
+    B   16-FSK, one tone per symbol. Which tone carries the pixel, so a codec
+        cannot touch it - 100% exact - at about a tenth of the resolution.
+
+Generation C (WebP + Reed-Solomon) was cut; see spectral/tel/rejected/.
+
+Nothing here reimplements a modem. The tel modules use bare sibling imports
+(`import fsk_codec as fsk`), so their directory goes on sys.path first.
 """
 
 import io
@@ -24,32 +32,62 @@ _TEL = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
 if _TEL not in sys.path:
     sys.path.insert(0, _TEL)
 
-import fsk_codec as fsk          # noqa: E402
-import image_webp                # noqa: E402
 import channel_sim               # noqa: E402
 
-from spectral.analysis import waveform as wf          # noqa: E402
+from spectral.tel import call_track                    # noqa: E402
+from spectral.analysis import waveform as wf           # noqa: E402
+from spectral.decoder.image_reconstructor import to_image_array  # noqa: E402
 from app.services.pipeline import validate_credentials  # noqa: E402
 
-SAMPLE_RATE = fsk.SAMPLE_RATE
-SYMBOL_SAMPLES = fsk.SYMBOL_SAMPLES
-SIZES = [64, 96, 128, 160]
-QUALITIES = [30, 50, 70]
+SAMPLE_RATE = call_track.SAMPLE_RATE
+
+# What the Call page offers. Gen A spends one frame per column whatever the
+# content, so it buys resolution cheaply; Gen B is serial and does not.
+GENERATIONS = {
+    "A": {
+        "id": "A",
+        "label": "Generation A",
+        "tagline": "Amplitude carries the pixel",
+        "summary": ("The same parallel multitone scheme the WAV track uses, "
+                    "narrowed to 700-3000 Hz with two pilot tones. A voice "
+                    "codec models each frame with eight poles and cannot hold "
+                    "that many tone levels, so the picture arrives damaged - "
+                    "roughly two thirds of pixels exact. It is fast on the "
+                    "wire, so it carries the most detail."),
+        "sizes": [16, 24, 32, 48, 64],
+        "default_size": 24,
+        "levels": [2, 4, 8, 16],
+        "default_levels": 4,
+        "lossy": True,
+    },
+    "B": {
+        "id": "B",
+        "label": "Generation B",
+        "tagline": "Which tone carries the pixel",
+        "summary": ("One tone at a time out of sixteen. The decoder takes an "
+                    "argmax and never compares loudness, so a codec that "
+                    "destroys amplitude cannot touch it - the picture arrives "
+                    "exact. The cost is airtime, which caps the grid at about "
+                    "32 x 32."),
+        "sizes": [16, 24, 32],
+        "default_size": 32,
+        "levels": [2, 4],
+        "default_levels": 4,
+        "lossy": False,
+    },
+}
+
+# A call runs in real time. Refuse one nobody would sit through.
+MAX_SECONDS = 300
 
 
 def info():
     return {
         "gsm_available": gsm_available(),
         "sample_rate": SAMPLE_RATE,
-        "symbol_ms": fsk.SYMBOL_MS,
-        "tones": fsk.M,
-        "f_low": float(fsk.TONES[0]),
-        "f_high": float(fsk.TONES[-1]),
-        "rs_parity": image_webp.RS_PARITY,
-        "sizes": SIZES,
-        "qualities": QUALITIES,
-        "default_size": image_webp.DEFAULT_SIZE,
-        "default_quality": image_webp.DEFAULT_QUALITY,
+        "generations": list(GENERATIONS.values()),
+        "default_generation": "A",
+        "max_seconds": MAX_SECONDS,
     }
 
 
@@ -57,11 +95,25 @@ def gsm_available():
     return bool(shutil.which("toast") or channel_sim._ffmpeg_has_libgsm())
 
 
-def _check_settings(size, quality):
-    if size not in SIZES:
-        raise ValueError(f"Size must be one of {', '.join(map(str, SIZES))} pixels.")
-    if quality not in QUALITIES:
-        raise ValueError(f"Quality must be one of {', '.join(map(str, QUALITIES))}.")
+def _check(generation, size, levels, colour):
+    if generation not in GENERATIONS:
+        raise ValueError("Generation must be A or B.")
+    spec = GENERATIONS[generation]
+    if size not in spec["sizes"]:
+        raise ValueError(f"Generation {generation} carries "
+                         f"{', '.join(str(s) for s in spec['sizes'])} pixels square.")
+    if levels not in spec["levels"]:
+        raise ValueError(f"Generation {generation} carries "
+                         f"{', '.join(str(n) for n in spec['levels'])} gray levels.")
+    mode = "RGB" if colour else "L"
+    seconds = call_track.budget_seconds(size, size, levels, mode, generation)
+    if seconds > MAX_SECONDS:
+        raise ValueError(
+            f"That would take {seconds / 60:.1f} minutes of call time, and the "
+            f"limit is {MAX_SECONDS // 60} minutes. Use a smaller grid, fewer "
+            f"gray levels, or send it in grayscale."
+        )
+    return mode, seconds
 
 
 def open_image(upload_bytes):
@@ -75,16 +127,31 @@ def open_image(upload_bytes):
     return image
 
 
-def plan(image_bytes, size, quality):
-    _check_settings(size, quality)
-    p = image_webp.plan(image_bytes, size, quality)
-    if p["packet_bytes"] > image_webp.MAX_PACKET_BYTES:
-        p["too_large"] = True
-    p["seconds"] = round(p["seconds"], 2)
-    return p
+def plan(generation, size, levels, colour):
+    """Quote the airtime without doing the encode, so the page can show it
+    while the settings are still being chosen."""
+    mode, seconds = _check(generation, size, levels, colour)
+    spec = GENERATIONS[generation]
+    channels = 3 if colour else 1
+    return {
+        "generation": generation,
+        "rows": size, "columns": size,
+        "gray_levels": levels,
+        "mode": mode,
+        "channels": channels,
+        "seconds": round(seconds, 2),
+        "lossy": spec["lossy"],
+        "pixels": size * size * channels,
+    }
 
 
-def _png(image):
+def _png(image_array):
+    image = Image.fromarray(image_array,
+                            mode="RGB" if image_array.ndim == 3 else "L")
+    scale = max(1, 320 // max(1, image.width))
+    if scale > 1:
+        image = image.resize((image.width * scale, image.height * scale),
+                             Image.Resampling.NEAREST)
     buf = io.BytesIO()
     image.save(buf, "PNG")
     return buf.getvalue()
@@ -97,27 +164,36 @@ def to_wav_bytes(audio, sample_rate=SAMPLE_RATE):
     return buf.getvalue()
 
 
-def run_send(image_bytes, size, quality, locked=False,
+def run_send(image_bytes, generation, size, levels, colour, locked=False,
              caller=None, receiver=None, pin=None):
-    _check_settings(size, quality)
+    mode, _ = _check(generation, size, levels, colour)
     if locked:
         validate_credentials(caller, receiver, pin)
-        creds = dict(caller=caller, receiver=receiver, pin=pin)
-    else:
-        creds = {}
 
-    audio, on_wire, report = image_webp.send_image(image_bytes, size, quality, **creds)
-    psnr = report["compression_psnr"]
-    report["compression_psnr"] = None if psnr == float("inf") else round(psnr, 2)
-    report["seconds"] = round(report["seconds"], 2)
-    report["quality"] = quality
+    audio, metadata, activation = call_track.encode(
+        open_image(image_bytes), target_width=size, target_height=size,
+        gray_levels=levels, mode=mode, generation=generation,
+        security_enabled=locked, caller=caller, receiver=receiver, pin=pin,
+    )
 
+    sent_array = to_image_array(activation, levels)
     return {
         "audio": audio,
+        "metadata": metadata,
         "wav_bytes": to_wav_bytes(audio),
-        "sent_png": _png(on_wire),
-        "sent_array": np.asarray(on_wire),
-        "report": report,
+        "sent_png": _png(sent_array),
+        "sent_array": sent_array,
+        "report": {
+            "generation": generation,
+            "rows": metadata["rows"], "columns": metadata["columns"],
+            "gray_levels": levels, "mode": mode,
+            "channels": metadata["channels"],
+            "seconds": metadata["duration_seconds"],
+            "scheme": metadata["scheme"],
+            "band": metadata["band"],
+            "lossy": GENERATIONS[generation]["lossy"],
+            "locked": bool(locked),
+        },
         "stats": wf.global_stats(audio, SAMPLE_RATE),
     }
 
@@ -128,8 +204,9 @@ def run_call(audio, loss, noise_db, seed):
     if not -80.0 <= noise_db <= -10.0:
         raise ValueError("Noise floor must be between -80 and -10 dB.")
     if not gsm_available():
-        raise ValueError("No GSM 06.10 codec is installed on the server, so the call "
-                         "cannot be simulated. Install it with: brew install libgsm")
+        raise ValueError("No GSM 06.10 codec is installed on the server, so the "
+                         "call cannot be simulated. Install libgsm, or an ffmpeg "
+                         "built with it.")
     try:
         received = channel_sim.channel(audio, sample_rate=SAMPLE_RATE, loss_rate=loss,
                                        noise_db=noise_db, seed=int(seed))
@@ -210,146 +287,104 @@ def read_any_audio(raw_bytes, filename=None):
                    "codec": meta.get("codec")}
 
 
-def _find_transmission(audio):
-    """Where the transmission starts, and whether the header describes audio
-    that is actually here. Without the second half, noise can claim a 65 kB
-    packet and the demodulator would build a minutes-long symbol grid out of
-    nothing.
+def locate(audio, metadata):
+    """Where the transmission starts in a recording, and how sure we are.
 
-    The search is delegated to voip.sync rather than fsk.read_header. The
-    modem's own preamble search only looks at the first three seconds, which is
-    all a simulated call ever needs -- the simulator prepends at most 900 ms.
-    A recording made on a phone has however long it took to press Record, walk
-    back to the laptop and start the audio, so a real .mka would come back
-    "not found" here for no better reason than it began too late.
+    Neither generation can be read out of a bare recording on its own: Gen A's
+    grid geometry and Gen B's symbol count live in the send's metadata, which
+    a recording of a loudspeaker obviously does not carry. So the page keeps
+    the send session and hands its metadata back here. What this adds is the
+    offset, because a phone recording starts whenever Record was pressed.
     """
+    if metadata.get("generation") == "A":
+        import tel_decoder
+        start = int(tel_decoder.pilot_align(audio, metadata["tel"]))
+        frames = metadata["columns"] * metadata["channels"] + metadata["tel"]["preamble_frames"]
+        end = start + frames * metadata["tel"]["frame_samples"]
+        return {"offset": start, "score": None, "truncated": bool(end > len(audio))}
+
     from voip import sync as voip_sync
-
+    import fsk_codec as fsk
     located = voip_sync.find_preamble(audio)
-    if not located.found:
-        return {"found": False, "packet_bytes": None, "offset": located.offset,
-                "score": located.score, "weak_symbols": None, "truncated": None}
-
-    length_bits, _ = fsk.read_header(audio, offset=located.offset)
-    n_bytes = int("".join(str(int(b)) for b in length_bits), 2)
-    frames = len(fsk.PREAMBLE) + fsk.HEADER_SYMBOLS + 2 * n_bytes
-    end = located.offset + frames * SYMBOL_SAMPLES
-    plausible = image_webp.RS_PARITY < n_bytes and end <= len(audio) * 1.1 + SAMPLE_RATE
-
-    return {
-        "found": bool(plausible),
-        "packet_bytes": int(n_bytes) if plausible else None,
-        "offset": int(located.offset),
-        "score": round(float(located.score), 4),
-        "weak_symbols": _weak_symbols(audio, located.offset, n_bytes) if plausible else None,
-        "truncated": bool(end > len(audio)) if plausible else None,
-    }
+    frames = len(fsk.PREAMBLE) + metadata["fsk"]["n_symbols"]
+    end = located.offset + frames * fsk.SYMBOL_SAMPLES
+    return {"offset": int(located.offset), "score": round(float(located.score), 4),
+            "found": bool(located.found), "truncated": bool(end > len(audio))}
 
 
-def _weak_symbols(audio, offset, n_bytes):
-    """How many payload symbols were close calls, for the inspect report."""
-    from voip.dsp import available_symbols, confidence_stats, symbol_decisions, \
-        symbol_magnitudes
+def run_inspect(audio, metadata=None):
+    stats = wf.global_stats(audio, SAMPLE_RATE)
+    if metadata is None:
+        return {
+            "found": False,
+            "message": ("Loaded. Choose which transmission this is a recording "
+                        "of, below, so its settings can be used to rebuild it."),
+            "stats": stats,
+        }
 
-    start = offset + (len(fsk.PREAMBLE) + fsk.HEADER_SYMBOLS) * SYMBOL_SAMPLES
-    count = min(2 * int(n_bytes), available_symbols(audio, start))
-    if count <= 0:
-        return None
-    _, margin = symbol_decisions(symbol_magnitudes(audio, start, count))
-    return confidence_stats(margin)["weak_symbols"]
-
-
-def _from_preamble(audio, offset):
-    """The recording trimmed to start at the preamble.
-
-    image_webp.receive_image -> demodulate -> fsk.read_header runs its own
-    three-second search, one layer down. Handing it a slice that begins at the
-    preamble means that search trivially succeeds at offset 0, so a recording
-    with a long lead-in decodes without image_webp needing to change at all.
-    """
-    return audio[int(offset):] if offset else audio
-
-
-def run_inspect(audio):
-    located = _find_transmission(audio)
-    found = located["found"]
-
-    opens = False
-    if found:
-        image, _ = image_webp.receive_image(_from_preamble(audio, located["offset"]))
-        opens = image is not None
-
-    if not found:
-        message = ("No call transmission was found in this audio. It needs the "
-                   "16-tone preamble that the send side puts at the start.")
+    located = locate(audio, metadata)
+    if located.get("found") is False:
+        message = ("No transmission preamble was found in this audio. Either it "
+                   "is not a recording of this call, or Record was started too "
+                   "late.")
     elif located["truncated"]:
-        message = ("This transmission was found, but the recording stops before it "
-                   "ends. Rebuilding it will probably fail; record the whole call.")
-    elif opens:
-        message = "This transmission is open. Rebuild it whenever you are ready."
+        message = ("Found, but the recording stops before the transmission ends. "
+                   "The tail of the picture will be missing.")
     else:
-        message = ("This transmission did not open without a key. It is either locked, "
-                   "or the call damaged it past repair. Enter the numbers and PIN to try.")
+        message = "Found. Rebuild it whenever you are ready."
 
     return {
-        "found": bool(found),
-        "packet_bytes": located["packet_bytes"],
-        "offset_seconds": round(located["offset"] / SAMPLE_RATE, 3) if found else None,
-        "opens_without_key": opens,
-        "message": message,
-        "stats": wf.global_stats(audio, SAMPLE_RATE),
-        # additive: the Call page ignores what it does not know about
+        "found": located.get("found", True),
+        "generation": metadata.get("generation"),
+        "offset_seconds": round(located["offset"] / SAMPLE_RATE, 3),
         "preamble_score": located["score"],
-        "weak_symbols": located["weak_symbols"],
         "truncated": located["truncated"],
+        "message": message,
+        "stats": stats,
     }
 
 
-def run_receive(audio, locked=False, caller=None, receiver=None, pin=None,
-                sent_array=None):
-    creds = {}
+def run_receive(audio, metadata, locked=False, caller=None, receiver=None,
+                pin=None, sent_array=None):
+    if metadata is None:
+        raise ValueError("Choose which transmission this audio is a recording of.")
     if locked:
         validate_credentials(caller, receiver, pin)
-        creds = dict(caller=caller, receiver=receiver, pin=pin)
 
-    located = _find_transmission(audio)
-    if not located["found"]:
-        raise ValueError("No call transmission was found in this audio, so there is "
-                         "nothing to rebuild.")
+    located = locate(audio, metadata)
+    trimmed = audio[located["offset"]:] if located["offset"] else audio
 
     try:
-        image, report = image_webp.receive_image(
-            _from_preamble(audio, located["offset"]), **creds)
+        image_array = call_track.decode(
+            trimmed, metadata, caller=caller, receiver=receiver, pin=pin,
+            decrypt_enabled=bool(locked))
     except Exception as exc:
         raise ValueError(f"The audio could not be read as a transmission: {exc}")
 
     result = {
-        "ok": image is not None,
+        "ok": True,
+        "generation": metadata.get("generation"),
         "locked": bool(locked),
-        "packet_bytes": report["packet_bytes"],
-        # report["offset"] is relative to the trimmed slice, so add back where
-        # the slice began to keep this the position in the original recording
-        "offset_seconds": round(
-            (located["offset"] + report["offset"]) / SAMPLE_RATE, 3),
+        "rows": metadata["rows"], "columns": metadata["columns"],
+        "mode": metadata.get("mode", "L"),
+        "offset_seconds": round(located["offset"] / SAMPLE_RATE, 3),
+        "truncated": located["truncated"],
+        "png": _png(image_array),
     }
 
-    if image is None:
-        result.update(png=_png(report["static"]), reason=report["reason"],
-                      width=report["static"].width, height=report["static"].height)
-        return result
-
-    result.update(png=_png(image), width=image.width, height=image.height,
-                  repaired_bytes=report["repaired_bytes"],
-                  webp_bytes=report["webp_bytes"])
-
-    if sent_array is not None:
-        got = np.asarray(image)
-        if got.shape == sent_array.shape:
-            mse = float(np.mean((got.astype(float) - sent_array.astype(float)) ** 2))
-            result["match"] = {
-                "identical": bool(mse == 0),
-                "psnr": None if mse == 0 else round(10 * np.log10(255.0 ** 2 / mse), 2),
-            }
+    # Against what was actually put on the wire, so the number is the channel's
+    # doing and not the quantiser's.
+    if sent_array is not None and np.shape(sent_array) == image_array.shape:
+        got = image_array.astype(float)
+        ref = np.asarray(sent_array, dtype=float)
+        mse = float(np.mean((got - ref) ** 2))
+        exact = float(np.mean(got == ref))
+        result["match"] = {
+            "identical": bool(mse == 0),
+            "mae": round(float(np.mean(np.abs(got - ref))), 3),
+            "psnr": None if mse == 0 else round(10 * np.log10(255.0 ** 2 / mse), 2),
+            "exact_fraction": round(exact, 4),
+        }
     return result
 
 

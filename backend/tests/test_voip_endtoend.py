@@ -21,6 +21,9 @@ LOCK = {"caller": "01712345678", "receiver": "01787654321", "pin": "4321"}
 def rehearse(prepared, seed=3, **kwargs):
     received, _ = simulate.simulate(prepared.audio, lead_seconds=LEAD,
                                     gsm=False, seed=seed)
+    # Generation A carries no header on the wire; its geometry lives in the
+    # manifest, so every rehearsal hands that back the way `decode --run` does.
+    kwargs.setdefault("manifest", prepared.manifest)
     return decode.decode(received, **kwargs)
 
 
@@ -32,7 +35,8 @@ def assert_starts_after(result, lead, prepared):
     lead + lead_in + jitter -- not lead.
     """
     lead_in = prepared.manifest["wire"]["lead_in_seconds"]
-    offset = result.report["summary"]["offset_s"]
+    summary = result.report["summary"]
+    offset = summary.get("offset_s") or result.report["sync"]["offset_seconds"]
     assert lead + lead_in <= offset <= lead + lead_in + 1.0, (
         f"expected the preamble between {lead + lead_in:.1f}s and "
         f"{lead + lead_in + 1.0:.1f}s, found it at {offset:.2f}s")
@@ -43,15 +47,23 @@ def assert_starts_after(result, lead, prepared):
 # --------------------------------------------------------------------------
 
 def test_colour_picture_survives(synthetic_image):
-    prepared = encode.prepare(source=synthetic_image, generation="C",
-                              size=96, quality=50)
+    prepared = encode.prepare(source=synthetic_image, generation="A", grid=32,
+                              colour=True)
     result = rehearse(prepared)
 
     assert result.verdict == "ok"
     assert result.report["payload"]["kind"] == "image"
-    assert np.array_equal(np.asarray(result.image),
-                          np.asarray(prepared.sent_image)), \
-        "Reed-Solomon is all-or-nothing, so a success must be byte-exact"
+    assert result.report["payload"]["generation"] == "A"
+    # No codec in this rehearsal, so the amplitudes arrive intact and the
+    # picture is exact. What GSM does to them is test_voip_channel's job -
+    # that loss is Generation A's whole reason for being kept.
+    # Generation A carries the pixel in a tone's amplitude, so it loses
+    # accuracy to *any* level disturbance -- the rehearsal's AGC and noise
+    # floor are enough, with no codec involved. Measured around 0.83 here.
+    # That sensitivity is the whole reason it is the model's training target.
+    quality = result.report["quality"]
+    assert quality["image_compared"] is True
+    assert 0.7 < quality["exact_fraction"] < 1.0
     assert_starts_after(result, LEAD, prepared)
 
 
@@ -65,20 +77,24 @@ def test_raw_pixel_picture_survives(synthetic_image):
     assert (result.report["frame"]["rows"], result.report["frame"]["cols"]) == (16, 16)
 
 
-@pytest.mark.parametrize("message", [
-    "hello from a phone call",
-    "ünïcödé and emoji ✓🎵 survive Reed-Solomon",
-])
-def test_text_survives_byte_exact(message):
-    prepared = encode.prepare(text=message, generation="C")
+def test_text_is_rendered_as_a_picture():
+    """Generation C carried UTF-8 bytes and gave back the string. With it cut,
+    text over a call is drawn into the grid and arrives as pixels, so what
+    comes back is a picture of the message, not the message."""
+    prepared = encode.prepare(text="HELLO", generation="A", grid=32)
+
+    assert any("rendered as a picture" in w for w in prepared.warnings)
+    assert prepared.manifest["payload"]["kind"] == "image"
+
     result = rehearse(prepared)
     assert result.verdict == "ok"
-    assert result.text == message
+    assert result.text is None
+    assert result.image is not None
 
 
 def test_text_rendered_as_a_picture(synthetic_image):
-    prepared = encode.prepare(text="RENDERED", generation="C", as_image=True,
-                              size=96, quality=50)
+    prepared = encode.prepare(text="RENDERED", generation="A", as_image=True,
+                              grid=32)
     result = rehearse(prepared)
     assert result.verdict == "ok"
     assert result.report["payload"]["kind"] == "image"
@@ -89,32 +105,65 @@ def test_text_rendered_as_a_picture(synthetic_image):
 # --------------------------------------------------------------------------
 
 def test_the_right_pin_rebuilds_the_picture(synthetic_image):
-    prepared = encode.prepare(source=synthetic_image, generation="C", size=64,
-                              quality=50, locked=True, **LOCK)
+    """Generation B, where the lock is the clean case: bits are exact, so the
+    permutation is the only thing between the sender and the picture."""
+    prepared = encode.prepare(source=synthetic_image, generation="B", grid=16,
+                              levels=4, locked=True, **LOCK)
     result = rehearse(prepared, locked=True, **LOCK)
+
     assert result.verdict == "ok"
     assert result.image is not None
+    assert result.report["quality"]["exact_fraction"] == 1.0
 
 
 def test_the_wrong_pin_gives_static_not_an_error(synthetic_image):
-    """Intended behaviour, and the report has to name it as such."""
-    prepared = encode.prepare(source=synthetic_image, generation="C", size=64,
-                              quality=50, locked=True, **LOCK)
-    wrong = dict(LOCK, pin="9999")
-    result = rehearse(prepared, locked=True, **wrong)
+    """Intended behaviour, though its shape changed when Generation C went.
 
-    assert result.verdict == "wrong-pin"
-    assert result.image is None
-    assert result.static is not None
-    assert any("PIN" in hint for hint in result.report["hints"])
+    Reed-Solomon could *detect* a wrong key -- parity failed, so the decoder
+    knew to paint noise and say so in the verdict. A permutation cannot: every
+    PIN unshuffles to a real picture, and the wrong one unshuffles to the wrong
+    picture. So the verdict stays "ok" and the evidence is in the pixels.
+    """
+    prepared = encode.prepare(source=synthetic_image, generation="B", grid=16,
+                              levels=4, locked=True, **LOCK)
+    result = rehearse(prepared, locked=True, **dict(LOCK, pin="9999"))
+
+    assert result.image is not None            # it decodes; that is the point
+    assert result.report["quality"]["exact_fraction"] < 0.6
+    assert result.report["quality"]["mae"] > 20
 
 
-def test_a_locked_transmission_will_not_open_without_the_key(synthetic_image):
-    prepared = encode.prepare(source=synthetic_image, generation="C", size=64,
-                              quality=50, locked=True, **LOCK)
+def test_not_unlocking_at_all_is_the_same_static(synthetic_image):
+    prepared = encode.prepare(source=synthetic_image, generation="B", grid=16,
+                              levels=4, locked=True, **LOCK)
     result = rehearse(prepared)
-    assert result.verdict == "rs-failed"
-    assert result.image is None
+
+    assert result.image is not None
+    assert result.report["quality"]["exact_fraction"] < 0.6
+
+
+def test_locking_costs_generation_a_accuracy(synthetic_image):
+    """A finding worth keeping honest, not a regression.
+
+    Scrambling destroys the spatial correlation between neighbouring pixels.
+    A smooth column drives a few tones at similar amplitudes; a scrambled one
+    drives every row at an unrelated amplitude, which raises the crest factor,
+    and peak normalisation then buys each tone less headroom. So the same
+    channel costs a locked Generation A picture far more than an open one --
+    measured around 0.66 exact against 0.85 -- and the right PIN is only
+    modestly better than the wrong one. Generation B has no such cost.
+    """
+    locked = encode.prepare(source=synthetic_image, generation="A", grid=24,
+                            locked=True, **LOCK)
+    opened = encode.prepare(source=synthetic_image, generation="A", grid=24)
+
+    with_key = rehearse(locked, locked=True, **LOCK).report["quality"]
+    no_lock = rehearse(opened).report["quality"]
+
+    assert with_key["exact_fraction"] < no_lock["exact_fraction"]
+    # still better than the wrong key, just not by much
+    wrong = rehearse(locked, locked=True, **dict(LOCK, pin="9999")).report["quality"]
+    assert with_key["exact_fraction"] > wrong["exact_fraction"]
 
 
 # --------------------------------------------------------------------------
@@ -151,17 +200,24 @@ def test_the_verdict_ladder_covers_every_outcome(synthetic_image):
 
     seen.add(decode.decode(np.zeros(20 * 8000)).verdict)
 
-    prepared = encode.prepare(source=synthetic_image, generation="C", size=64)
+    prepared = encode.prepare(source=synthetic_image, generation="B", grid=16,
+                              levels=4)
     seen.add(rehearse(prepared).verdict)
 
     received, _ = simulate.simulate(prepared.audio, lead_seconds=LEAD, gsm=False, seed=3)
     seen.add(decode.decode(received[:len(received) - int(8.0 * 8000)]).verdict)
 
-    locked = encode.prepare(source=synthetic_image, generation="C", size=64,
-                            locked=True, **LOCK)
-    seen.add(rehearse(locked, locked=True, **dict(LOCK, pin="9999")).verdict)
+    assert {"no-sync", "ok", "truncated"} <= seen
 
-    assert {"no-sync", "ok", "truncated", "wrong-pin"} <= seen
+    # "wrong-pin" left the ladder with Generation C. Reed-Solomon could tell a
+    # bad key from a good one; a permutation cannot, so a wrong PIN now decodes
+    # successfully to the wrong picture. The evidence moved from the verdict to
+    # the pixels -- see test_the_wrong_pin_gives_static_not_an_error.
+    locked = encode.prepare(source=synthetic_image, generation="B", grid=16,
+                            levels=4, locked=True, **LOCK)
+    wrong = rehearse(locked, locked=True, **dict(LOCK, pin="9999"))
+    assert wrong.verdict == "ok"
+    assert wrong.report["quality"]["exact_fraction"] < 0.6
 
 
 # --------------------------------------------------------------------------
@@ -207,7 +263,7 @@ def test_a_run_folder_holds_everything_needed_to_score_the_call(tmp_path, synthe
     from voip import report
 
     run_dir = str(tmp_path / "run")
-    prepared = encode.prepare(source=synthetic_image, generation="C", size=64)
+    prepared = encode.prepare(source=synthetic_image, generation="A", grid=24)
     encode.write_run(prepared, run_dir)
 
     assert os.path.isfile(os.path.join(run_dir, "tx.wav"))
@@ -220,15 +276,17 @@ def test_a_run_folder_holds_everything_needed_to_score_the_call(tmp_path, synthe
     result = decode.decode(received, manifest=manifest)
     decode.write_run(result, run_dir, sent_image=prepared.sent_image)
 
-    assert result.report["quality"]["compare_to"] == "sent.png"
-    assert result.report["quality"]["identical"] is True
+    # The reference is the level indices in the manifest rather than sent.png,
+    # so scoring works whether or not a run folder exists on disk.
+    assert result.report["quality"]["compare_to"] == "manifest"
+    assert result.report["quality"]["image_compared"] is True
     assert os.path.isfile(os.path.join(run_dir, "report.json"))
     assert os.path.isfile(os.path.join(run_dir, "received.png"))
 
 
 def test_plan_predicts_the_real_airtime(synthetic_image):
-    predicted = encode.plan(source=synthetic_image, generation="C", size=96, quality=50)
-    actual = encode.prepare(source=synthetic_image, generation="C", size=96, quality=50)
+    predicted = encode.plan(source=synthetic_image, generation="A", grid=32, colour=True)
+    actual = encode.prepare(source=synthetic_image, generation="A", grid=32, colour=True)
     assert predicted["airtime_seconds"] == pytest.approx(
         actual.manifest["wire"]["airtime_seconds"], abs=0.1)
 

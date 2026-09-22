@@ -1,157 +1,114 @@
-"""Pictures, text and the PIN lock, through the Reed-Solomon packet format."""
+"""What the modem carries, now that Generation C is cut.
+
+Generation A goes through spectral/tel/call_track.py; Generation B is raw
+quantized pixels. Both share one lock: a permutation of the activation matrix,
+applied upstream of the modem so it survives a call.
+"""
 
 import numpy as np
 import pytest
 
-from voip import _tel, payload
-from voip.config import TEXT_MAGIC, VoipError
+from voip import payload
+from voip.config import VoipError
 
-OPEN = (None, None, None)
-LOCKED = ("01712345678", "01787654321", "4321")
-
-
-# --------------------------------------------------------------------------
-# Sniffing
-# --------------------------------------------------------------------------
-
-def test_sniff_recognises_text_and_webp(synthetic_image):
-    from PIL import Image
-
-    _, webp = _tel.image_webp().compress(Image.open(synthetic_image), 64, 50)
-    assert payload.sniff(webp) == "image"
-    assert payload.sniff(TEXT_MAGIC + b"hello") == "text"
-    assert payload.sniff(b"\x00\x01\x02\x03nonsense") == "unknown"
-    assert payload.sniff(b"") == "unknown"
+CALLER, RECEIVER, PIN = "12345678901", "10987654321", "1234"
 
 
-def test_a_webp_is_never_mistaken_for_text(synthetic_image):
-    """Images carry no prefix, so the format stays backward compatible."""
-    from PIL import Image
-
-    _, webp = _tel.image_webp().compress(Image.open(synthetic_image), 96, 50)
-    assert webp[:4] != TEXT_MAGIC
-    assert payload.open_payload(webp)["kind"] == "image"
-
-
-def test_unknown_payload_is_refused_with_an_explanation():
-    with pytest.raises(VoipError, match="neither a WebP"):
-        payload.open_payload(b"\x91\x22\x00\xff" * 40)
+@pytest.fixture
+def activation():
+    """A 16x16 gradient quantized to 4 levels, as either generation sends it."""
+    grid = np.add.outer(np.linspace(0, 1, 16), np.linspace(0, 1, 16)) / 2
+    return np.round(grid * 3) / 3
 
 
 # --------------------------------------------------------------------------
-# Text
+# Generation B: bits
 # --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("message", [
-    "hello",
-    "Spectral Canvas over a real call",
-    "multibyte: ünïcödé, 日本語, emoji ✓🎵",
-    "x" * 500,
-    "line one\nline two\ttabbed",
-])
-def test_text_round_trips_exactly(message):
-    key = payload.transmission_key(*OPEN)
-    packet, meta = payload.build_text_packet(message, key)
-    assert meta["kind"] == "text"
-
-    raw, repaired = payload.unprotect(packet, key)
-    assert repaired == 0
-    opened = payload.open_payload(raw)
-    assert opened["kind"] == "text"
-    assert opened["text"] == message
-
-
-def test_empty_text_is_refused():
-    with pytest.raises(VoipError, match="no text"):
-        payload.build_text_packet("   ", payload.transmission_key(*OPEN))
-
-
-# --------------------------------------------------------------------------
-# Pictures
-# --------------------------------------------------------------------------
-
-def test_image_packet_round_trips(synthetic_image):
-    from PIL import Image
-
-    key = payload.transmission_key(*OPEN)
-    packet, on_wire, meta = payload.build_image_packet(
-        Image.open(synthetic_image), 96, 50, key)
-
-    assert meta["kind"] == "image"
-    assert meta["packet_bytes"] > meta["webp_bytes"]
-
-    raw, _ = payload.unprotect(packet, key)
-    opened = payload.open_payload(raw)
-    assert np.array_equal(np.asarray(opened["image"]), np.asarray(on_wire))
-
-
-# --------------------------------------------------------------------------
-# The lock
-# --------------------------------------------------------------------------
-
-def test_the_right_key_opens_it(synthetic_image):
-    from PIL import Image
-
-    key = payload.transmission_key(*LOCKED)
-    packet, on_wire, _ = payload.build_image_packet(
-        Image.open(synthetic_image), 64, 50, key)
-    raw, _ = payload.unprotect(packet, key)
-    assert np.array_equal(
-        np.asarray(payload.open_payload(raw)["image"]), np.asarray(on_wire))
-
-
-def test_the_wrong_pin_gives_static_not_an_error(synthetic_image):
-    """A wrong PIN is meant to decode to noise. That is the behaviour, not a bug."""
-    from PIL import Image
-
-    packet, _, _ = payload.build_image_packet(
-        Image.open(synthetic_image), 64, 50, payload.transmission_key(*LOCKED))
-
-    wrong = payload.transmission_key("01712345678", "01787654321", "9999")
-    with pytest.raises(Exception):
-        payload.unprotect(packet, wrong)
-
-    static = payload.static_image(packet, wrong)
-    assert static.mode == "RGB" and static.width > 0
-
-
-def test_an_open_transmission_still_gets_shuffled():
-    """The shuffle doubles as a byte interleaver, so it runs even with no PIN."""
-    webp = _tel.image_webp()
-    plain = bytes(range(256)) * 4
-    key = payload.transmission_key(*OPEN)
-    assert webp.protect(plain, key) != webp.protect(plain, key, 0)[:len(plain)]
-    assert payload.unprotect(webp.protect(plain, key), key)[0] == plain
-
-
-def test_open_and_locked_keys_differ():
-    assert payload.transmission_key(*OPEN) != payload.transmission_key(*LOCKED)
-
-
-# --------------------------------------------------------------------------
-# Reed-Solomon accounting
-# --------------------------------------------------------------------------
-
-def test_rs_blocks_reports_the_repair_budget():
-    info = payload.rs_blocks(942, 32)
-    assert info["rs_parity"] == 32
-    assert info["rs_limit_per_block"] == 16
-    assert info["blocks"] >= 1
-    assert info["rs_limit_total"] == info["blocks"] * 16
-
-
-# --------------------------------------------------------------------------
-# Generation B
-# --------------------------------------------------------------------------
-
-def test_genb_bits_round_trip():
-    activation = np.round(np.random.default_rng(4).random((16, 16)) * 3) / 3
+def test_genb_bits_round_trip(activation):
     bits, meta = payload.build_genb_bits(activation, 4)
-    assert meta["payload_bits"] == 16 * 16 * 2
-    assert np.array_equal(
-        payload.genb_bits_to_activation(bits, 16, 16, 4), activation)
+    assert meta["rows"] == 16 and meta["cols"] == 16
+    assert len(bits) == 16 * 16 * 2          # 4 levels = 2 bits a pixel
+
+    back = payload.genb_bits_to_activation(bits, 16, 16, 4)
+    assert np.allclose(back, activation)
 
 
-def test_genb_refuses_colour():
+def test_genb_refuses_colour(activation):
+    colour = np.stack([activation] * 3, axis=-1)
     with pytest.raises(VoipError, match="grayscale only"):
-        payload.build_genb_bits(np.zeros((8, 8, 3)), 4)
+        payload.build_genb_bits(colour, 4)
+
+
+def test_genb_bit_count_tracks_the_level_count(activation):
+    two, _ = payload.build_genb_bits(np.round(activation), 2)
+    four, _ = payload.build_genb_bits(activation, 4)
+    assert len(four) == 2 * len(two)
+
+
+# --------------------------------------------------------------------------
+# Generation A: the call_track bridge
+# --------------------------------------------------------------------------
+
+def test_gen_a_loads_and_offers_both_generations():
+    call_track = payload.gen_a()
+    assert call_track.GENERATIONS == ("A", "B")
+    assert call_track.SAMPLE_RATE == 8000
+
+
+def test_gen_a_budget_is_cheaper_per_pixel_than_gen_b():
+    """The whole reason Generation A is worth keeping: one frame per column,
+    whatever the content, against Generation B's serial symbol stream."""
+    call_track = payload.gen_a()
+    a = call_track.budget_seconds(24, 24, 4, "L", "A")
+    b = call_track.budget_seconds(24, 24, 4, "L", "B")
+    assert a < b / 4
+
+
+def test_gen_a_refuses_an_unknown_generation():
+    with pytest.raises(ValueError, match="Generation must be"):
+        payload.gen_a().budget_seconds(24, 24, 4, "L", "C")
+
+
+# --------------------------------------------------------------------------
+# The lock, which both generations share
+# --------------------------------------------------------------------------
+
+def test_the_right_key_puts_every_pixel_back(activation):
+    permute = payload.gen_a()._permute
+    scrambled = permute(activation, CALLER, RECEIVER, PIN, forward=True)
+    restored = permute(scrambled, CALLER, RECEIVER, PIN, forward=False)
+    assert np.allclose(restored, activation)
+
+
+def test_scrambling_actually_moves_something(activation):
+    scrambled = payload.gen_a()._permute(activation, CALLER, RECEIVER, PIN,
+                                         forward=True)
+    assert not np.allclose(scrambled, activation)
+
+
+def test_the_wrong_pin_gives_static_not_an_error(activation):
+    """The behaviour the whole project is built around: a wrong PIN decodes,
+    it just decodes to noise."""
+    permute = payload.gen_a()._permute
+    scrambled = permute(activation, CALLER, RECEIVER, PIN, forward=True)
+    wrong = permute(scrambled, CALLER, RECEIVER, "9999", forward=False)
+
+    assert wrong.shape == activation.shape          # no exception, real output
+    assert not np.allclose(wrong, activation)
+    # and it is not merely off by a little
+    assert np.mean(np.abs(wrong - activation)) > 0.1
+
+
+def test_colour_is_permuted_channel_by_channel(activation):
+    permute = payload.gen_a()._permute
+    colour = np.stack([activation, activation * 0.5, activation * 0.25], axis=-1)
+    scrambled = permute(colour, CALLER, RECEIVER, PIN, forward=True)
+    assert scrambled.shape == colour.shape
+    assert np.allclose(permute(scrambled, CALLER, RECEIVER, PIN, forward=False),
+                       colour)
+
+
+def test_a_missing_credential_is_refused(activation):
+    with pytest.raises(ValueError, match="required"):
+        payload.gen_a()._permute(activation, CALLER, None, PIN, forward=True)

@@ -250,10 +250,13 @@ def image_metrics(image_array, source_activation, gray_levels):
     source = to_image_array(source_activation, gray_levels)
     if source.shape != image_array.shape:
         return None
+    quality = psnr(image_array, source)
     return {
         "mae": round(mean_absolute_error(image_array, source), 4),
         "mse": round(mse(image_array, source), 4),
-        "psnr": round(psnr(image_array, source), 2),
+        # a perfect decode gives infinite PSNR, which is not JSON; the
+        # frontend shows "exact" for a null
+        "psnr": None if quality == float("inf") else round(quality, 2),
     }
 
 

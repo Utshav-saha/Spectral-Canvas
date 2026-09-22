@@ -45,17 +45,6 @@ needs_sdk = pytest.mark.skipif(
     not _sdk_available(), reason="liblinphone Python wrapper not installed")
 
 
-@pytest.fixture(scope="session")
-def fixture_image():
-    """A real photograph from the project's own fixtures."""
-    import os
-    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    path = os.path.join(os.path.dirname(here), "tests", "fixtures", "pepsi.jpg")
-    if not os.path.isfile(path):
-        pytest.skip(f"missing fixture {path}")
-    return path
-
-
 @pytest.fixture
 def synthetic_image(tmp_path):
     """A shape with hard edges and flat areas: kind to WebP, obvious when wrong."""

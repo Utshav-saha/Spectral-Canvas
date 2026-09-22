@@ -127,11 +127,23 @@ def test_compressed_containers_load(tmp_path, name, args):
 
 
 @needs_ffmpeg
+def _fixture_image(tmp_path):
+    """A small deterministic picture. Text no longer has its own wire format -
+    it is rendered and sent as pixels - so this test carries a picture."""
+    import numpy as np
+    from PIL import Image
+    grid = (np.add.outer(np.arange(48), np.arange(48)) * 5 % 256).astype("uint8")
+    path = str(tmp_path / "fixture.png")
+    Image.fromarray(grid, "L").save(path)
+    return path
+
+
 def test_a_matroska_recording_decodes_the_same_as_its_wav(tmp_path):
     """The point of the whole module: .mka must be as good as .wav."""
     from voip import decode, encode, simulate
 
-    prepared = encode.prepare(text="over a real call", generation="C")
+    prepared = encode.prepare(source=_fixture_image(tmp_path), generation="B",
+                              grid=16, levels=4)
     received, _ = simulate.simulate(prepared.audio, lead_seconds=12.0,
                                     gsm=False, seed=2)
 
@@ -140,8 +152,12 @@ def test_a_matroska_recording_decodes_the_same_as_its_wav(tmp_path):
     mka = str(tmp_path / "rx.mka")
     _transcode(wav, mka, "-c:a", "libopus", "-b:a", "64k")
 
-    assert decode.decode(wav).text == "over a real call"
-    assert decode.decode(mka).text == "over a real call"
+    # The picture, not the text: text has no wire format of its own any more.
+    from_wav = decode.decode(wav, manifest=prepared.manifest)
+    from_mka = decode.decode(mka, manifest=prepared.manifest)
+
+    assert from_wav.verdict == "ok" and from_mka.verdict == "ok"
+    assert from_mka.report["quality"]["exact_fraction"] ==         from_wav.report["quality"]["exact_fraction"]
 
 
 @needs_ffmpeg

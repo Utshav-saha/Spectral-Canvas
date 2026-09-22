@@ -4,6 +4,7 @@ import Landing from './pages/Landing'
 import Simulate from './pages/Simulate'
 import Receive from './pages/Receive'
 import Call from './pages/Call'
+import Experiments from './pages/Experiments'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
           <Route path="/simulate" element={<Simulate />} />
           <Route path="/receive" element={<Receive />} />
           <Route path="/call" element={<Call />} />
+          <Route path="/experiments" element={<Experiments />} />
         </Routes>
         <footer className="site-foot">
           <div className="shell">

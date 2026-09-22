@@ -6,10 +6,11 @@ there is no file container to hang metadata off.
 
 Two payload generations share those 16 bits.
 
-**Generation C** (``image_webp``) spends all 16 on the packet byte count.
+Generation C spent all 16 on a packet byte count. It was cut, so a header
+without the Generation B marker is not one of ours.
 Everything else the receiver needs is either fixed in code or derivable from
 that count. This package does not change that format by one bit -- audio
-prepared here is still decodable by ``image_webp.receive_image`` and by the
+prepared here is still decodable by the modem itself and by the
 existing web page.
 
 **Generation B** (``image_fsk``, raw quantized pixels) had no header at all.
@@ -61,7 +62,7 @@ GEN_B_FLOOR = GEN_B_MARKER << 12          # 61440
 class Frame:
     """What the header said, and where the payload therefore starts."""
 
-    generation: str                  # "B" or "C"
+    generation: str                  # always "B"; Gen A does not use this framing
     header_value: int
     n_symbols: int                   # payload symbols the header implies
     data_start: int                  # first payload sample
@@ -83,11 +84,8 @@ class Frame:
             "header_hex": self.header_hex,
             "expected_symbols": int(self.n_symbols),
         }
-        if self.generation == "B":
-            out.update(rows=self.rows, cols=self.cols, levels=self.levels,
-                       payload_bits=int(self.info["n_payload_bits"]))
-        else:
-            out.update(packet_bytes=int(self.packet_bytes))
+        out.update(rows=self.rows, cols=self.cols, levels=self.levels,
+                   payload_bits=int(self.info["n_payload_bits"]))
         return out
 
 
@@ -103,24 +101,13 @@ def _from_bits(bits):
     return int("".join(str(int(b)) for b in np.asarray(bits).ravel()[:HEADER_BITS]), 2)
 
 
-def build_genc_header(packet_bytes):
-    """Generation C: the packet byte count, exactly as image_webp writes it."""
-    packet_bytes = int(packet_bytes)
-    if not 0 < packet_bytes < GEN_B_FLOOR:
-        raise FrameError(
-            f"A Generation C packet of {packet_bytes} bytes will not fit a 16-bit "
-            f"header (limit {GEN_B_FLOOR - 1}). Lower --size or --quality."
-        )
-    return _to_bits(packet_bytes)
-
-
 def build_genb_header(rows, cols, levels):
     """Generation B: the self-describing picture descriptor."""
     rows, cols, levels = int(rows), int(cols), int(levels)
     if not 1 <= rows <= GEN_B_MAX_SIDE or not 1 <= cols <= GEN_B_MAX_SIDE:
         raise FrameError(
             f"Generation B carries up to {GEN_B_MAX_SIDE}x{GEN_B_MAX_SIDE} pixels; "
-            f"asked for {rows}x{cols}. Use --gen C for anything larger."
+            f"asked for {rows}x{cols}. Use --gen A for anything larger."
         )
     if levels not in LEVEL_CODES:
         raise FrameError(
@@ -133,15 +120,13 @@ def build_genb_header(rows, cols, levels):
 def parse_header(bits):
     """16 bits -> what they describe. Never raises; the caller validates."""
     value = _from_bits(bits)
-    if value >= GEN_B_FLOOR:
-        return {
-            "generation": "B",
-            "header_value": value,
-            "rows": ((value >> 7) & 0x1F) + 1,
-            "cols": ((value >> 2) & 0x1F) + 1,
-            "levels": CODE_LEVELS[value & 0x03],
-        }
-    return {"generation": "C", "header_value": value, "packet_bytes": value}
+    return {
+        "generation": "B" if value >= GEN_B_FLOOR else "unknown",
+        "header_value": value,
+        "rows": ((value >> 7) & 0x1F) + 1,
+        "cols": ((value >> 2) & 0x1F) + 1,
+        "levels": CODE_LEVELS[value & 0x03],
+    }
 
 
 # --------------------------------------------------------------------------
@@ -150,6 +135,29 @@ def parse_header(bits):
 
 def bits_per_pixel(levels):
     return int(np.log2(int(levels)))
+
+
+def genb_info(rows, cols, levels):
+    """Reconstruct fsk.modulate's info dict from the descriptor alone.
+
+    Mirrors modulate()'s own order of operations: Hamming(7,4) first, then the
+    depth-16 block interleaver, then 4 bits to a symbol. Each pad is forced, so
+    none of them has to travel on the wire.
+    """
+    payload = int(rows) * int(cols) * bits_per_pixel(levels)
+    hamming_pad = (-payload) % 4
+    coded = (payload + hamming_pad) // 4 * 7
+    interleave_pad = (-coded) % _tel.fsk().INTERLEAVE_DEPTH
+    total = coded + interleave_pad
+    return {
+        "n_payload_bits": payload,
+        "n_symbols": total // 4,
+        "fec": True,
+        "hamming_pad": hamming_pad,
+        "interleave_pad": interleave_pad,
+        "symbol_pad": (-total) % 4,      # always 0: total is a multiple of 16
+        "has_header": True,
+    }
 
 
 def genb_info(rows, cols, levels):
@@ -210,69 +218,32 @@ def read_header_bits(audio, offset):
 
 
 def read_frame(audio, offset, expect="auto", rs_parity=None):
-    """Decode the header and work out the whole frame shape.
+    """The 16 header symbols at `offset` -> a Frame, or FrameError.
 
-    `expect` is "auto", "B" or "C". Forcing it matters for one legacy case:
-    spectral/tel/demo.py writes a Generation B tx.wav whose header holds a raw
-    payload *bit* count, which has no marker and so reads as Generation C.
+    Only Generation B uses this framing. Generation A has its own pilot-tone
+    preamble and carries its geometry in the run manifest, so it never reaches
+    here. `expect` and `rs_parity` are kept for call compatibility and ignored.
     """
-    fsk = _tel.fsk()
-    bits, header_margin = read_header_bits(audio, offset)
+    bits, warnings = read_header_bits(audio, offset)
     parsed = parse_header(bits)
-    warnings = []
 
-    generation = parsed["generation"]
-    if expect in ("B", "C") and expect != generation:
-        if expect == "C":
-            parsed = {"generation": "C", "header_value": parsed["header_value"],
-                      "packet_bytes": parsed["header_value"]}
-            generation = "C"
-            warnings.append("Header looked like Generation B but --gen C was forced.")
-        else:
-            raise FrameError(
-                f"--gen B was forced but the header reads {parsed['header_value']}, "
-                f"which is not a Generation B descriptor."
-            )
-
-    data_start = int(offset) + (len(fsk.PREAMBLE) + fsk.HEADER_SYMBOLS) * SYMBOL_SAMPLES
-
-    if generation == "B":
-        info = genb_info(parsed["rows"], parsed["cols"], parsed["levels"])
-        frame = Frame(
-            generation="B", header_value=parsed["header_value"],
-            n_symbols=info["n_symbols"], data_start=data_start, info=info,
-            rows=parsed["rows"], cols=parsed["cols"], levels=parsed["levels"],
-            warnings=warnings,
-        )
-    else:
-        packet_bytes = parsed["packet_bytes"]
-        if packet_bytes <= 0:
-            raise FrameError(
-                "The header decoded to a packet of zero bytes. The first second "
-                "of the transmission is too damaged to read."
-            )
-        # Generalises tel_pipeline._find_transmission: a packet at or below the
-        # parity size cannot contain a payload, so this is noise that happened
-        # to score well rather than a real header.
-        floor = rs_parity if rs_parity is not None else _tel.image_webp().RS_PARITY
-        if packet_bytes <= floor:
-            raise FrameError(
-                f"The header claims a {packet_bytes}-byte packet, which is smaller "
-                f"than the {floor} bytes of error-correction every packet carries. "
-                f"This is not a transmission."
-            )
-        info = genc_info(packet_bytes)
-        frame = Frame(
-            generation="C", header_value=parsed["header_value"],
-            n_symbols=info["n_symbols"], data_start=data_start, info=info,
-            packet_bytes=packet_bytes, warnings=warnings,
+    if parsed["generation"] != "B":
+        raise FrameError(
+            f"The header at this offset reads {parsed['header_value']:#06x}, which "
+            f"is not a Generation B descriptor. Either this is not one of our "
+            f"transmissions, or sync locked onto noise."
         )
 
-    if float(np.mean(header_margin)) < 2.0:
-        frame.warnings.append(
-            "The header symbols were marginal, so the payload length may be wrong."
-        )
-    return frame
+    rows, cols, levels = parsed["rows"], parsed["cols"], parsed["levels"]
+    info = genb_info(rows, cols, levels)
+    fsk = _tel.fsk()
+    data_start = offset + (len(fsk.PREAMBLE) + fsk.HEADER_SYMBOLS) * SYMBOL_SAMPLES
+
+    return Frame(
+        generation="B", header_value=parsed["header_value"],
+        n_symbols=info["n_symbols"], data_start=data_start, info=info,
+        rows=rows, cols=cols, levels=levels, warnings=warnings,
+    )
 
 
 def frame_bounds(audio, frame):

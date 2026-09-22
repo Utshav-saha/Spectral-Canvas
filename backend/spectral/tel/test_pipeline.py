@@ -1,14 +1,10 @@
 """Encode -> simulated VoIP channel -> decode, and report the error.
 
-Cut from the product - see README.md in this directory. Kept so the 17.7%
-result stays reproducible for the report.
+This is Generation A over a voice call. It is lossy by construction - GSM's
+8-pole LPC cannot hold N simultaneous tone amplitudes - and that is the point:
+the loss it produces is what the restoration model is being trained against.
+Run it to see where the baseline sits.
 """
-
-import os
-import sys
-
-# channel_sim.py stayed in the parent directory with the shipping Track 2 code
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 

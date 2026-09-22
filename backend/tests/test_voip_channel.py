@@ -35,37 +35,56 @@ def test_a_picture_survives_real_gsm(synthetic_image):
 
 
 @needs_gsm
-def test_colour_survives_real_gsm(synthetic_image):
-    """Reed-Solomon is all-or-nothing, so this is exact or it is nothing."""
-    prepared = encode.prepare(source=synthetic_image, generation="C",
-                              size=64, quality=50)
+def test_generation_b_survives_real_gsm_exactly(synthetic_image):
+    """The claim Generation B exists to make. The decoder takes an argmax over
+    sixteen tones and never compares magnitudes, so a codec that flattens
+    loudness cannot reach it."""
+    prepared = encode.prepare(source=synthetic_image, generation="B", grid=16,
+                              levels=4)
     received, _ = simulate.simulate(prepared.audio, lead_seconds=15.0,
                                     loss=0.02, seed=2, gsm=True)
-    result = decode.decode(received)
+    result = decode.decode(received, manifest=prepared.manifest)
+
     assert result.verdict == "ok"
-    assert np.array_equal(np.asarray(result.image),
-                          np.asarray(prepared.sent_image))
+    assert result.report["quality"]["exact_fraction"] == 1.0
 
 
 @needs_gsm
-def test_text_survives_real_gsm():
-    prepared = encode.prepare(text="through GSM 06.10", generation="C")
-    received, _ = simulate.simulate(prepared.audio, lead_seconds=12.0,
-                                    loss=0.02, seed=3, gsm=True)
-    assert decode.decode(received).text == "through GSM 06.10"
+def test_generation_a_is_damaged_by_real_gsm(synthetic_image):
+    """The other half of the same claim, and the reason the model exists.
+
+    Generation A puts the pixel in a tone's amplitude. GSM 06.10 models each
+    20 ms frame with an 8-pole LPC envelope, which keeps where the peaks are
+    and loses how tall they are. The picture still arrives -- it just arrives
+    wrong, by a margin that is stable enough to learn from.
+    """
+    prepared = encode.prepare(source=synthetic_image, generation="A", grid=24)
+    received, _ = simulate.simulate(prepared.audio, lead_seconds=15.0,
+                                    loss=0.02, seed=2, gsm=True)
+    result = decode.decode(received, manifest=prepared.manifest)
+
+    assert result.verdict == "ok"
+    assert result.image is not None
+    exact = result.report["quality"]["exact_fraction"]
+    assert 0.4 < exact < 0.98, (
+        "Generation A should be damaged but not destroyed; a perfect score "
+        "usually means GSM was not actually negotiated.")
 
 
 @needs_gsm
-def test_the_report_records_reed_solomon_headroom(synthetic_image):
-    """How close the call came to failing is the interesting number."""
-    prepared = encode.prepare(source=synthetic_image, generation="C", size=64)
-    received, _ = simulate.simulate(prepared.audio, lead_seconds=10.0,
-                                    loss=0.02, seed=4, gsm=True)
-    payload = decode.decode(received).report["payload"]
+def test_the_two_generations_disagree_over_the_same_channel(synthetic_image):
+    """A side-by-side, which is the measurement the report wants."""
+    results = {}
+    for generation, grid in (("A", 24), ("B", 16)):
+        prepared = encode.prepare(source=synthetic_image, generation=generation,
+                                  grid=grid, levels=4)
+        received, _ = simulate.simulate(prepared.audio, lead_seconds=10.0,
+                                        loss=0.02, seed=4, gsm=True)
+        results[generation] = decode.decode(
+            received, manifest=prepared.manifest).report["quality"]["exact_fraction"]
 
-    assert payload["opened"]
-    assert payload["repaired_bytes"] <= payload["rs_limit_total"]
-    assert payload["rs_headroom"] >= 0
+    assert results["B"] > results["A"]
+    assert results["B"] == 1.0
 
 
 # --------------------------------------------------------------------------

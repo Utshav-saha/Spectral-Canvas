@@ -26,9 +26,6 @@ from voip.config import (
     DEFAULT_LEAD_IN_S,
     DEFAULT_LEAD_OUT_S,
     DEFAULT_LEVELS,
-    DEFAULT_PARITY,
-    DEFAULT_QUALITY,
-    DEFAULT_SIZE,
     LONG_TRANSMISSION_WARN_S,
     MANIFEST_SCHEMA,
     SAMPLE_RATE,
@@ -88,39 +85,32 @@ def _sha256(data):
 # Planning (no audio produced)
 # --------------------------------------------------------------------------
 
-def plan(source=None, text=None, generation="C", size=DEFAULT_SIZE,
-         quality=DEFAULT_QUALITY, grid=DEFAULT_GRID, levels=DEFAULT_LEVELS,
-         parity=DEFAULT_PARITY, lead_in=DEFAULT_LEAD_IN_S,
-         lead_out=DEFAULT_LEAD_OUT_S):
-    """Bytes and seconds, without building the waveform. Drives --dry-run."""
-    fsk = _tel.fsk()
-    overhead = (len(fsk.PREAMBLE) + fsk.HEADER_SYMBOLS) * fsk.SYMBOL_MS / 1000.0
+def plan(source=None, text=None, generation="A", grid=DEFAULT_GRID,
+         levels=DEFAULT_LEVELS, colour=False, lead_in=DEFAULT_LEAD_IN_S,
+         lead_out=DEFAULT_LEAD_OUT_S, **_ignored):
+    """Geometry and seconds, without building the waveform. Drives --dry-run."""
+    if generation not in ("A", "B"):
+        raise VoipError(f"Generation must be A or B, not {generation!r}.")
+    if generation == "B" and colour:
+        raise VoipError("Generation B carries grayscale only. Use --gen A for colour.")
 
     if generation == "B":
-        if text is not None:
-            raise VoipError("Text goes over Generation C. Drop --gen B, or use --as-image.")
+        fsk = _tel.fsk()
+        overhead = (len(fsk.PREAMBLE) + fsk.HEADER_SYMBOLS) * fsk.SYMBOL_MS / 1000.0
         # Validate before quoting a time: without this, --dry-run cheerfully
-        # plans a two-minute call for a grid the 16-bit header cannot describe.
+        # plans a call for a grid the 16-bit header cannot describe.
         framing.build_genb_header(grid, grid, levels)
         info = framing.genb_info(grid, grid, levels)
         seconds = info["n_symbols"] * fsk.SYMBOL_MS / 1000.0 + overhead
-        out = {"generation": "B", "rows": grid, "cols": grid, "levels": levels,
+        out = {"generation": "B", "kind": "image", "rows": grid, "cols": grid,
+               "levels": levels, "mode": "L", "channels": 1,
                "payload_bits": info["n_payload_bits"], "symbols": info["n_symbols"]}
     else:
-        webp = _tel.image_webp()
-        if text is not None:
-            raw = payload.TEXT_MAGIC + text.encode("utf-8")
-            packet_bytes = len(webp.reedsolo.RSCodec(parity).encode(raw))
-            out = {"generation": "C", "kind": "text", "characters": len(text),
-                   "packet_bytes": packet_bytes}
-        else:
-            planned = webp.plan(_open_image(source), size, quality, parity)
-            packet_bytes = planned["packet_bytes"]
-            out = {"generation": "C", "kind": "image", "packet_bytes": packet_bytes,
-                   "webp_bytes": planned["webp_bytes"],
-                   "width": planned["width"], "height": planned["height"]}
-        seconds = 2 * packet_bytes * fsk.SYMBOL_MS / 1000.0 + overhead
-        out["symbols"] = 2 * packet_bytes
+        mode = "RGB" if colour else "L"
+        seconds = payload.gen_a().budget_seconds(grid, grid, levels, mode, "A")
+        out = {"generation": "A", "kind": "image", "rows": grid, "cols": grid,
+               "levels": levels, "mode": mode, "channels": 3 if colour else 1,
+               "symbols": grid * (3 if colour else 1)}
 
     out["airtime_seconds"] = round(seconds, 2)
     out["total_seconds"] = round(seconds + lead_in + lead_out, 2)
@@ -131,76 +121,83 @@ def plan(source=None, text=None, generation="C", size=DEFAULT_SIZE,
 # Building the transmission
 # --------------------------------------------------------------------------
 
-def prepare(source=None, text=None, generation="C", size=DEFAULT_SIZE,
-            quality=DEFAULT_QUALITY, grid=DEFAULT_GRID, levels=DEFAULT_LEVELS,
-            as_image=False, locked=False, caller=None, receiver=None, pin=None,
-            parity=DEFAULT_PARITY, lead_in=DEFAULT_LEAD_IN_S,
-            lead_out=DEFAULT_LEAD_OUT_S, source_name=None):
+def prepare(source=None, text=None, generation="A", grid=DEFAULT_GRID,
+            levels=DEFAULT_LEVELS, colour=False, as_image=False, locked=False,
+            caller=None, receiver=None, pin=None, lead_in=DEFAULT_LEAD_IN_S,
+            lead_out=DEFAULT_LEAD_OUT_S, source_name=None, **_ignored):
     """Source -> PrepareResult holding the padded audio and a full manifest."""
     if source is None and text is None:
         raise VoipError("Nothing to send: give a picture or some text.")
-    if generation not in ("B", "C"):
-        raise VoipError(f"Generation must be B or C, not {generation!r}.")
+    if generation not in ("A", "B"):
+        raise VoipError(f"Generation must be A or B, not {generation!r}.")
+    if generation == "B" and colour:
+        raise VoipError("Generation B carries grayscale only. Use --gen A for colour.")
 
     fsk = _tel.fsk()
+    call_track = payload.gen_a()
     warnings = []
 
     if locked:
         # Reuses the app's own rule: two 11-digit numbers and a 4-8 digit PIN.
         from app.services.pipeline import validate_credentials
         validate_credentials(caller, receiver, pin)
-        creds = (caller, receiver, pin)
-    else:
-        creds = (None, None, None)
 
-    # Text rendered as a picture is a demo flourish, not the default path.
-    if text is not None and as_image:
+    # Generation C carried raw text bytes. With it gone, text over a call is
+    # rendered to a picture and sent like any other.
+    if text is not None:
+        if not as_image:
+            warnings.append("Text over a call is rendered as a picture.")
         from spectral.input.image_preprocessor import render_text_image
         source = render_text_image(text, target_width=max(64, grid),
                                    target_height=max(64, grid))
         source_name = source_name or "rendered-text"
-        text = None
 
-    source_image = None
-    sent_image = None
+    source_image = _open_image(source)
+    gen_metadata = None
 
     if generation == "B":
-        if text is not None:
-            raise VoipError("Text goes over Generation C. Drop --gen B, or add --as-image.")
-        source_image = _open_image(source)
         activation = _quantize_for_genb(source_image, grid, levels)
-        bits, payload_meta = payload.build_genb_bits(activation, levels)
-        header = framing.build_genb_header(payload_meta["rows"], payload_meta["cols"], levels)
-        audio, info = fsk.modulate(bits, fec=True, header=header)
-        payload_meta["locked"] = False
+        to_send = activation
         if locked:
-            warnings.append(
-                "Generation B has no PIN lock; the scramble lives in the "
-                "Generation C byte shuffle. Sent open."
-            )
-        sent_image = _activation_preview(activation, levels)
+            to_send = call_track._permute(activation, caller, receiver, pin,
+                                          forward=True)
+        bits, payload_meta = payload.build_genb_bits(to_send, levels)
+        header = framing.build_genb_header(payload_meta["rows"],
+                                           payload_meta["cols"], levels)
+        audio, info = fsk.modulate(bits, fec=True, header=header)
         header_value = int("".join(map(str, header)), 2)
-
+        payload_meta.update(mode="L", channels=1, locked=bool(locked))
     else:
-        key = payload.transmission_key(*creds)
-        if text is not None:
-            packet, payload_meta = payload.build_text_packet(text, key, parity)
-        else:
-            source_image = _open_image(source)
-            packet, sent_image, payload_meta = payload.build_image_packet(
-                source_image, size, quality, key, parity)
-        payload_meta["locked"] = bool(locked)
-        payload_meta["sha256_packet"] = _sha256(packet)
-        # image_webp.modulate builds the header itself, so the bits on the wire
-        # stay identical to what the web page produces
-        audio, info = _tel.image_webp().modulate(packet)
-        header_value = payload_meta["packet_bytes"]
+        audio, gen_metadata, activation = call_track.encode(
+            source_image, target_width=grid, target_height=grid,
+            gray_levels=levels, mode="RGB" if colour else "L", generation="A",
+            security_enabled=bool(locked), caller=caller, receiver=receiver,
+            pin=pin)
+        payload_meta = {
+            "kind": "image", "rows": gen_metadata["rows"],
+            "cols": gen_metadata["columns"], "levels": levels,
+            "mode": gen_metadata["mode"], "channels": gen_metadata["channels"],
+            "locked": bool(locked),
+        }
+        # Generation A has no FSK framing; these keep the manifest one shape.
+        info = {"n_symbols": gen_metadata["columns"] * gen_metadata["channels"],
+                "n_payload_bits": None}
+        header_value = None
+
+    sent_image = _activation_preview(activation, levels)
+
+    # The level indices that went on the wire, so a decode can be scored
+    # against them without the run folder. Small: 24x24 is 576 ints, and a
+    # 32x32 colour frame is 3072. Generation A has no header on the wire, so
+    # its manifest has to be self-sufficient anyway.
+    payload_meta["sent_levels"] = np.rint(
+        np.clip(activation, 0.0, 1.0) * (levels - 1)).astype(int).tolist()
 
     airtime = len(audio) / float(SAMPLE_RATE)
     if airtime > LONG_TRANSMISSION_WARN_S:
         warnings.append(
-            f"This is {airtime / 60:.1f} minutes of call. "
-            f"--size 96 is about half that, and --gen B about a tenth."
+            f"This is {airtime / 60:.1f} minutes of call. A smaller --grid, "
+            f"fewer --levels or dropping --colour all shorten it."
         )
 
     padded = pad_audio(audio, lead_in, lead_out, SAMPLE_RATE)
@@ -209,6 +206,9 @@ def prepare(source=None, text=None, generation="C", size=DEFAULT_SIZE,
         "schema": MANIFEST_SCHEMA,
         "created_utc": report.utc_now(),
         "generation": generation,
+        # Generation A is not self-describing on the wire - its pilot preamble
+        # carries no header - so the decoder needs this dict back verbatim.
+        "gen_metadata": gen_metadata,
         "source": {
             "kind": payload_meta["kind"],
             "name": source_name or _source_name(source),
@@ -217,23 +217,29 @@ def prepare(source=None, text=None, generation="C", size=DEFAULT_SIZE,
         "payload": payload_meta,
         "wire": {
             "sample_rate": SAMPLE_RATE,
-            "symbol_ms": fsk.SYMBOL_MS,
-            "tones": int(fsk.M),
-            "f_low": float(fsk.TONES[0]),
-            "f_high": float(fsk.TONES[-1]),
-            "preamble_symbols": len(fsk.PREAMBLE),
-            "header_symbols": int(fsk.HEADER_SYMBOLS),
+            "generation": generation,
             "payload_symbols": int(info["n_symbols"]),
-            "header_value": int(header_value),
-            "header_hex": f"{int(header_value):04x}",
-            "fec": "hamming74+interleave16" if generation == "B" else "reed-solomon",
+            "header_value": None if header_value is None else int(header_value),
+            "header_hex": None if header_value is None else f"{int(header_value):04x}",
+            "fec": "hamming74+interleave16" if generation == "B" else "none",
             "airtime_seconds": round(airtime, 3),
             "lead_in_seconds": float(lead_in),
             "lead_out_seconds": float(lead_out),
             "total_seconds": round(len(padded) / float(SAMPLE_RATE), 3),
         },
-        "fsk_info": dict(info),
+        "fsk_info": dict(info) if generation == "B" else None,
     }
+    if generation == "B":
+        manifest["wire"].update(
+            symbol_ms=fsk.SYMBOL_MS, tones=int(fsk.M),
+            f_low=float(fsk.TONES[0]), f_high=float(fsk.TONES[-1]),
+            preamble_symbols=len(fsk.PREAMBLE),
+            header_symbols=int(fsk.HEADER_SYMBOLS))
+    else:
+        manifest["wire"].update(
+            f_low=gen_metadata["band"][0], f_high=gen_metadata["band"][1],
+            frame_ms=gen_metadata["frame_duration"] * 1000,
+            preamble_frames=gen_metadata["tel"]["preamble_frames"])
 
     return PrepareResult(audio=padded, manifest=manifest, sent_image=sent_image,
                          source_image=source_image, text=text, warnings=warnings)

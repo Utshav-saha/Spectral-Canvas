@@ -32,7 +32,7 @@ python spectral/text/text_codec.py
 cd backend/spectral/tel
 python3 demo.py                     # image -> 16-FSK -> simulated GSM call -> image; writes tx.wav
 ./run_local_call.sh tx.wav rx.wav   # real SIP loopback call; needs `brew install pjproject` (pjsua)
-cd rejected && python3 test_pipeline.py   # cut Track 3; reproduces the ~17.7% error result
+python3 test_pipeline.py            # Generation A over the simulated call, with the error
 
 # Real phone call (backend/voip/, run from backend/). voip/README.md is the full guide.
 python -m voip.cli check-env                                   # run this first, always
@@ -72,9 +72,8 @@ There is no linter and no JS test setup. The root `.venv` lacks FastAPI, so use 
 ### Telephony path (`backend/spectral/tel/`)
 
 This directory sends images over an 8 kHz voice call (GSM 06.10 over SIP), and `tel/README_TELEPHONY.md` has the full reasoning. `call_track.py` is the app-facing wrapper (**Track 2**, see below); the rest of the directory is still standalone scripts you run by hand. Voice codecs model each 20 ms frame with an 8-pole LPC envelope. That keeps *which* frequency is present but loses *how loud* it is, so the main app's parallel multitone scheme, where amplitude carries each pixel, fails here.
-- `image_webp.py` is Generation C: WebP -> Reed-Solomon (32 parity per 255) -> PIN-keyed byte shuffle -> the same 16-FSK modem. It carries full colour up to 160 px, where raw pixels top out near 24x24. Note it fails differently from Gen B: past 16 bad bytes in a block the picture does not degrade, it refuses to open.
 - `fsk_codec.py` is the working modem. It sends one tone per 40 ms symbol, chosen from 16 tones between 700 and 3200 Hz, which gives 100 bit/s raw. A preamble handles sync. The payload is Hamming(7,4) coded and interleaved, with a 16-bit length header. The decoder only takes an `argmax` over tone bins and never compares magnitudes. `image_fsk.py` converts between activation matrices and bits, and its `budget()` function gives the call length. `channel_sim.py` simulates the call offline: GSM, packet loss, AGC and noise.
-- `tel/rejected/` holds Track 3, the failed narrowband multitone attempt with pilot tones (`tel_*.py`, `test_pipeline.py`). It is cut from the product and imported by nothing that ships, but kept on purpose for the report; `tel/rejected/README.md` has the reasoning and the numbers. `tel/patterns.py` holds the test image that used to live in `test_pipeline.py`, because `demo.py` still needs it.
+- `tel_config.py`, `tel_encoder.py` and `tel_decoder.py` are **Generation A** over a call, reached through `call_track.py`. They were cut once, as "Track 3", and brought back deliberately: the loss they produce is what the restoration model is being trained to undo. `tel/patterns.py` holds the test image that used to live in `test_pipeline.py`.
 - To reuse main-library pieces on this path, keep `scramble`/`unscramble`, which permute before the modem. **Drop the additive `generate_mask`/`remove_mask`**, because an RTP path never gives sample-exact alignment. `recover_activation` and the energy- or correlation-based sync don't carry over either.
 - The bandwidth sets the limits: 24×24 at 4 levels takes about 20 s, while the app's default of 64×64 RGB at 16 levels would take about 14 minutes. Outputs must be 16-bit mono PCM at 8 kHz.
 
@@ -103,15 +102,21 @@ file with no `track` field predates the split and is Track 1.
 - **Track 3 was cut.** It was Track 1's scheme sent over a call, and it sits in
   `spectral/tel/rejected/`. Nothing imports it. Don't wire it back in.
 
-A *track* is a delivery path; a *generation* is the encoding it carries, and
-they are separate axes. Gen A is the parallel multitone scheme (Track 1), Gen B
-is 16-FSK over raw pixels (Track 2), and **Gen C** is WebP + Reed-Solomon over
-the same 16-FSK modem. Gen C is not offered through `/api/encode` at all: it
-needs a staged upload so size and quality re-plan without re-uploading, and it
-reports Reed-Solomon block health rather than a pixel error, so it has its own
-endpoints and its own page. The `voip.cli --gen` flag uses the same letters.
+A *track* is a delivery path; a *generation* is the encoding it carries.
 
-### The call path (`backend/voip/`, `/api/tel`, the Call page)
+| | scheme | pixel lives in | over GSM | where |
+|---|---|---|---|---|
+| **Gen A** | parallel multitone, 2 pilots | a tone's amplitude | ~75% exact | Track 1, and the Call page |
+| **Gen B** | 16-FSK, one tone per symbol | which tone plays | 100% exact | Track 2, and the Call page |
+| ~~Gen C~~ | WebP + Reed-Solomon | bytes | exact or nothing | **cut** |
+
+Generation A over a call is lossy *on purpose*: the damage is graded and
+reproducible, which is what makes it a training target. Generation B is exact
+but caps out near 32x32, which is what the upscaler is for. Generation C was
+cut because a byte-exact file transfer has no loss to learn from -- the code
+is in the git history, not the tree.
+
+### The call path (`backend/voip/`, `/api/tel`, the Call page)### The call path (`backend/voip/`, `/api/tel`, the Call page)
 
 Merged from `reco_deco`. This is the only part of the project that places a
 **real** phone call; everything else either writes a file or simulates the
@@ -143,6 +148,35 @@ read it before touching this.
   because a recorded call is much bigger than a picture.
 - Frontend: `pages/Call.jsx` + `Call.css`, `api/telClient.js`, and a `/call`
   route. `telClient.js` is kept apart from `client.js` on purpose.
+- **Placing a real call**: `voip/dial.py` + `POST /api/tel/dial`. It drives
+  **pjsua**, not liblinphone: the SDK's Python bindings are on no package index
+  and have to be compiled from source, and they are not needed, because
+  `sip.linphone.org` is an ordinary SIP registrar and the Linphone app answers
+  any SIP client. SIP-to-SIP, so no PSTN and no paid trunk. Credentials come
+  from `VOIP_SIP_IDENTITY` / `VOIP_SIP_PASSWORD` in the server's environment
+  and **never** from a request body. One call at a time, behind a lock.
+  `voip/call/session.py` is the abandoned SDK route and has never run.
+- What the dial endpoint cannot do is bring the audio back: pjsua records its
+  own inbound leg, which is the phone's muted microphone, not the tones the
+  phone received. The recording is made on the phone with Linphone's in-call
+  Record button and uploaded to `POST /api/tel/upload`, which matches it to
+  the send session for the geometry.
+
+### The experiments bench (`/experiments`, `/api/channel`)
+
+`spectral/channel/effects.py` sat unused since the start; `app/services/
+channel_lab.py` is what exposes it. `GET /api/channel/effects` serves the
+catalogue the page builds itself from, so the UI and the validator cannot
+drift apart, and `POST /api/channel` runs a chain against an `/api/encode`
+session and measures what it cost.
+
+The figure that matters is `row_error`, the mean error per image row. One
+image row is one frequency, so an LTI channel's fingerprint is *which* rows it
+damages: a low-pass ramps at the top (row 0 carries `f_max`), a high-pass at
+the bottom, a band-stop punches a contiguous hole, and clipping scatters,
+because intermodulation puts energy on rows that were never sent.
+`tests/test_channel_bench.py` pins that mapping -- if it ever inverts, every
+figure in the report is wrong.
 
 ### HTTP layer
 
@@ -167,6 +201,11 @@ read it before touching this.
   - No scroll-triggered fade-ins. Respect `prefers-reduced-motion`.
   - Design tokens live in `src/styles/tokens.css`.
 
-### Planned work (from PRODUCT.md)
+### Planned work (from docs/PRODUCT.md)
 
-Each item gets its own route and nav entry: a channel panel (needs `POST /api/channel` wrapping `apply_chain`), a spectrogram view, a side-by-side sent/recovered/difference compare, and experiment plots (`spectral/analysis/experiments.py`, not yet written).
+The channel panel is built (`/experiments`). Still open: a spectrogram view, a
+side-by-side sent/recovered/difference compare, and experiment plots
+(`spectral/analysis/experiments.py`, not yet written). The restoration model
+itself is `docs/RESTORATION_PLAN.md` phases 2-5; `backend/tools/make_dataset.py`
+is the dataset generator, and the only caller of `apply_chain` outside the
+bench.

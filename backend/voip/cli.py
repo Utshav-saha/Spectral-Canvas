@@ -1,7 +1,7 @@
 """Command line for the VoIP transport. Run from backend/:
 
     python -m voip.cli check-env
-    python -m voip.cli prepare --image cat.jpg --gen B --grid 16
+    python -m voip.cli prepare --image cat.jpg --gen A --grid 24
     python -m voip.cli simulate --run latest --decode
     python -m voip.cli call --run latest --dial sip:someone@sip.linphone.org
     python -m voip.cli decode ~/Downloads/call.mka --run latest
@@ -21,9 +21,6 @@ from voip.config import (
     DEFAULT_LEAD_IN_S,
     DEFAULT_LEAD_OUT_S,
     DEFAULT_LEVELS,
-    DEFAULT_PARITY,
-    DEFAULT_QUALITY,
-    DEFAULT_SIZE,
     RUNS_ROOT,
     VoipError,
 )
@@ -63,7 +60,7 @@ def cmd_check_env(args):
         "ffmpeg_has_libgsm": ffmpeg_has_libgsm(),
         "gsm_codec_available": gsm_available(),
         "tel_modules": {n: _tel.available(n)
-                        for n in ("fsk_codec", "image_fsk", "image_webp", "channel_sim")},
+                        for n in ("fsk_codec", "image_fsk", "channel_sim")},
         "linphone": {"available": sdk.available(), "version": sdk.version()},
         "runs_root": RUNS_ROOT,
         "runs_writable": _writable(RUNS_ROOT),
@@ -155,8 +152,7 @@ def cmd_prepare(args):
             text = handle.read()
 
     common = dict(source=args.image, text=text, generation=args.gen,
-                  size=args.size, quality=args.quality, grid=args.grid,
-                  levels=args.levels, parity=args.parity,
+                  grid=args.grid, levels=args.levels, colour=args.colour,
                   lead_in=args.lead_in, lead_out=args.lead_out)
 
     if args.dry_run:
@@ -177,8 +173,9 @@ def cmd_prepare(args):
 
     wire = result.manifest["wire"]
     print(f"run       {run_dir}")
-    print(f"payload   {result.manifest['payload'].get('packet_bytes') or result.manifest['payload'].get('payload_bits')} "
-          f"{'bytes' if args.gen == 'C' else 'bits'}   generation {args.gen}")
+    sent = result.manifest["payload"]
+    print(f"payload   {sent['rows']}x{sent['cols']} at {sent['levels']} levels"
+          f"   generation {args.gen}")
     print(f"airtime   {wire['airtime_seconds']:.1f} s  "
           f"(+{wire['lead_in_seconds']:.0f}s lead-in, +{wire['lead_out_seconds']:.0f}s tail "
           f"= {wire['total_seconds']:.1f} s of call)")
@@ -191,15 +188,13 @@ def _auto_slug(args, result):
     payload = result.manifest["payload"]
     if payload["kind"] == "text":
         return f"text-{payload['characters']}c"
-    if args.gen == "B":
-        return f"genb-{payload['rows']}x{payload['cols']}"
-    return f"genc-{payload.get('width', args.size)}px-q{args.quality}"
+    return f"gen{args.gen.lower()}-{payload['rows']}x{payload['cols']}"
 
 
 def _format_plan(plan):
     lines = [f"generation  {plan['generation']}"]
-    for key in ("kind", "width", "height", "rows", "cols", "levels",
-                "webp_bytes", "packet_bytes", "payload_bits", "symbols"):
+    for key in ("kind", "rows", "cols", "levels", "mode", "channels",
+                "payload_bits", "symbols"):
         if key in plan:
             lines.append(f"{key:<12}{plan[key]}")
     lines.append(f"airtime     {plan['airtime_seconds']} s")
@@ -279,7 +274,7 @@ def _decode_into(recording, run_dir, args, locked=False, caller=None,
     result = decoder.decode(
         recording, generation=getattr(args, "gen", "auto") or "auto",
         locked=locked, caller=caller, receiver=receiver, pin=pin,
-        parity=getattr(args, "parity", DEFAULT_PARITY), manifest=manifest,
+        manifest=manifest,
         refine=not getattr(args, "no_refine", False),
         drift_scan=getattr(args, "drift_scan", False),
         search_seconds=getattr(args, "search_seconds", None),
@@ -306,8 +301,14 @@ def _print_decode(result, run_dir):
 
     frame = rep.get("frame")
     if frame:
-        detail = (f"generation {frame['generation']}  header 0x{frame['header_hex']}  "
-                  f"{frame['available_symbols']}/{frame['expected_symbols']} symbols")
+        if frame.get("header_hex"):
+            detail = (f"generation {frame['generation']}  header 0x{frame['header_hex']}  "
+                      f"{frame['available_symbols']}/{frame['expected_symbols']} symbols")
+        else:
+            # Generation A: pilot-aligned, no header, no symbol decisions
+            detail = (f"generation {frame['generation']}  "
+                      f"{frame['rows']}x{frame['cols']} at {frame['levels']} levels  "
+                      f"{'CUT SHORT' if frame.get('truncated') else 'complete'}")
         print(f"frame     {detail}")
 
     payload = rep.get("payload") or {}
@@ -315,11 +316,9 @@ def _print_decode(result, run_dir):
         if payload["kind"] == "text":
             print(f"text      {payload['characters']} characters")
             print(f"\n  {result.text}\n")
-        elif payload.get("generation") == "B":
+        else:
             print(f"picture   {payload['rows']}x{payload['cols']} at "
                   f"{payload['levels']} gray levels")
-        else:
-            print(f"picture   {payload.get('width')}x{payload.get('height')}")
         if payload.get("repaired_bytes") is not None:
             print(f"repaired  {payload['repaired_bytes']} bytes "
                   f"(budget {payload.get('rs_limit_total', '?')})")
@@ -398,16 +397,15 @@ def build_parser():
     source.add_argument("--image", help="picture to send")
     source.add_argument("--text", help="message to send")
     source.add_argument("--text-file", help="file holding the message")
-    prep.add_argument("--gen", choices=["B", "C"], default="C",
+    prep.add_argument("--gen", choices=["A", "B"], default="A",
                       help="B = raw pixels, small and quick; C = WebP, real colour (default)")
-    prep.add_argument("--size", type=int, default=DEFAULT_SIZE, help="Gen-C longest side (px)")
-    prep.add_argument("--quality", type=int, default=DEFAULT_QUALITY, help="Gen-C WebP quality")
+    prep.add_argument("--colour", "--color", action="store_true",
+                      dest="colour", help="send in colour (Generation A only)")
     prep.add_argument("--grid", type=int, default=DEFAULT_GRID, help="Gen-B square side")
     prep.add_argument("--levels", type=int, default=DEFAULT_LEVELS,
                       choices=[2, 4, 16, 256], help="Gen-B gray levels")
     prep.add_argument("--as-image", action="store_true",
                       help="render --text as a picture instead of sending it as bytes")
-    prep.add_argument("--parity", type=int, default=DEFAULT_PARITY)
     prep.add_argument("--lead-in", type=float, default=DEFAULT_LEAD_IN_S)
     prep.add_argument("--lead-out", type=float, default=DEFAULT_LEAD_OUT_S)
     prep.add_argument("--run-name")
@@ -432,8 +430,7 @@ def build_parser():
                      help="place a real SIP loopback call instead")
     sim.add_argument("--codec", default="GSM", help="codec for --pjsua")
     sim.add_argument("--decode", action="store_true", help="decode the result immediately")
-    sim.add_argument("--gen", choices=["auto", "B", "C"], default="auto")
-    sim.add_argument("--parity", type=int, default=DEFAULT_PARITY)
+    sim.add_argument("--gen", choices=["auto", "A", "B"], default="auto")
     sim.add_argument("--json", action="store_true")
     _add_lock_flags(sim)
     sim.set_defaults(func=cmd_simulate)
@@ -442,8 +439,7 @@ def build_parser():
     dec = subs.add_parser("decode", help="recording -> picture + report")
     dec.add_argument("recording", help=".wav .mka .mkv .m4a .caf .opus ...")
     dec.add_argument("--run", help="run folder to score against and write into")
-    dec.add_argument("--gen", choices=["auto", "B", "C"], default="auto")
-    dec.add_argument("--parity", type=int, default=DEFAULT_PARITY)
+    dec.add_argument("--gen", choices=["auto", "A", "B"], default="auto")
     dec.add_argument("--search-seconds", type=float,
                      help="limit the preamble search (default: the whole file)")
     dec.add_argument("--no-refine", action="store_true")

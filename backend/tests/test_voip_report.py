@@ -45,7 +45,7 @@ def test_nesting_is_converted_all_the_way_down():
 
 def test_a_real_report_serialises(tmp_path, synthetic_image):
     """The end-to-end guard: every value produced by a real decode must survive."""
-    prepared = encode.prepare(source=synthetic_image, generation="C", size=64)
+    prepared = encode.prepare(source=synthetic_image, generation="A", grid=24)
     received, _ = simulate.simulate(prepared.audio, lead_seconds=20.0,
                                     gsm=False, seed=1)
     result = decode.decode(received)
@@ -81,13 +81,13 @@ def test_the_summary_block_survives_a_failed_decode():
 
 
 def test_a_manifest_round_trips(tmp_path, synthetic_image):
-    prepared = encode.prepare(source=synthetic_image, generation="C", size=64)
+    prepared = encode.prepare(source=synthetic_image, generation="A", grid=24)
     run_dir = str(tmp_path / "r")
     encode.write_run(prepared, run_dir)
 
     manifest = report.load_manifest(run_dir)
     assert manifest["schema"] == MANIFEST_SCHEMA
-    assert manifest["generation"] == "C"
+    assert manifest["generation"] == "A"
     assert manifest["wire"]["sample_rate"] == 8000
     assert manifest["run_id"] == "r"
 

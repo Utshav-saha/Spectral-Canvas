@@ -132,7 +132,9 @@ exactly what a speech codec discards first.
 | `channel_sim.py` | offline GSM roundtrip + packet loss + AGC + noise, ~1 s per trial |
 | `demo.py` | full round trip with an ASCII preview, writes `tx.wav` |
 | `run_local_call.sh` | two `pjsua` instances, real SIP call, free |
-| `rejected/tel_*.py`, `rejected/test_pipeline.py` | the narrowband multitone attempt (Track 3), cut from the product and moved aside, kept so you can reproduce the 17.7% result for your report - see `rejected/README.md` |
+| `tel_config.py`, `tel_encoder.py`, `tel_decoder.py` | **Generation A**: narrowband multitone with two pilot tones. Amplitude carries the pixel, so a codec damages it - about 75% of pixels exact through GSM. That damage is the restoration model's training target |
+| `test_pipeline.py` | Generation A through the simulated call, with the error |
+| `call_track.py` | the app-facing wrapper: one `encode`/`decode` pair covering both generations |
 
 ---
 
@@ -169,41 +171,21 @@ through `render_text_image` at the same size and it reads fine.
 
 ---
 
-## Higher resolution RGB: `image_webp.py`
+## Generation C was cut
 
-Raw pixels cannot scale past about 24×24 at 4 levels, because the modem only
-carries ~57 bit/s after Hamming. So this path sends the **compressed file**
-instead of the pixels:
+`image_webp.py` sent the compressed *file* over the modem: WebP, then
+Reed-Solomon, then a PIN-keyed byte shuffle. It worked, and it was the only
+way to get full colour at 96-160 px over a voice call.
 
+It was cut anyway, because it is a file transfer that happens to use a modem.
+The picture comes back byte-exact or not at all, so there is no signal-
+processing loss to measure, invert or learn from -- past its 16-byte-per-block
+budget Reed-Solomon does not degrade the picture, it refuses to open it.
+
+Generations A and B both fail *gradually*, and that graded damage is the thing
+this project is now built around. The code and its measured results are in the
+git history if the report needs them:
+
+```bash
+git log --diff-filter=D --name-only -- '*image_webp*'
 ```
-image -> WebP -> Reed-Solomon (32 parity / 255) -> keyed byte shuffle -> 16-FSK
-```
-
-```
-pip install reedsolo
-python3 demo_webp.py                        # 96px RGB, open
-python3 demo_webp.py photo.jpg --size 128   # your own picture
-python3 demo_webp.py --lock                 # scrambled with numbers + PIN
-python3 demo_webp.py --lock --wrong-pin     # static
-python3 test_webp_pipeline.py               # sweep
-```
-
-| why | |
-|---|---|
-| WebP | 96×96 RGB is ~7 kbit instead of 110 kbit raw; quality comparable to raw 96×96 at 16 levels |
-| Reed-Solomon, not Hamming | a compressed file breaks on a single bad bit; RS repairs up to 16 bytes per 255 and costs 12.5% overhead instead of 43% |
-| byte shuffle, not pixel shuffle | `security.scramble` before WebP makes the file ~5× bigger (no spatial correlation left). The same `derive_key` now seeds a permutation of the coded bytes; a wrong PIN cannot be Reed-Solomon decoded |
-| shuffle even when open | a fixed public key spreads a lost packet's burst across many RS blocks |
-| self-describing | only the byte count travels in the header; the receiver needs nothing else from the sender |
-
-Measured through `channel_sim` (GSM 06.10, AGC, leading silence), 4 seeds each:
-
-| picture | on the wire | 2% loss | 5% loss | 2% loss, −25 dB noise |
-|---|---|---|---|---|
-| 64px | 44 s | 4/4 exact | | |
-| 96px | 67 s | 4/4 exact | 1/4 | 2/4 |
-| 128px | 86 s | 4/4 exact | | |
-
-"Exact" means the received WebP is byte-identical to the one sent. Reed-Solomon
-is all-or-nothing: past its limit the picture does not degrade gracefully, it
-fails to open. 5% loss and heavy noise are the open problem.

@@ -1,0 +1,154 @@
+/* The channel bench. Depth comes from shadows lit upper-left, never borders;
+   oxide red stays on pressable things and on the "no inverse" state dot. */
+
+.exp { position: relative; z-index: 1; padding-bottom: 110px; }
+
+.exp-size { margin-top: 20px; }
+
+/* ---- adding effects ---------------------------------------------------- */
+
+.exp-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 16px;
+}
+
+.exp-chip {
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  padding: 5px 9px;
+}
+
+/* ---- the chain --------------------------------------------------------- */
+
+.exp-chain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.exp-step {
+  background: var(--panel);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  box-shadow:
+    -1px -1px 0 rgba(255, 255, 255, 0.04),
+    2px 3px 8px rgba(0, 0, 0, 0.32);
+}
+
+.exp-step .field-note { margin: 6px 0 10px; }
+
+.exp-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.exp-step-head b {
+  font-family: var(--display);
+  font-size: var(--t-h3);
+  font-stretch: 92%;
+}
+
+.exp-tag {
+  font-size: var(--t-slug);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-left: auto;
+}
+
+.exp-drop {
+  font-size: var(--t-xs);
+  padding: 3px 8px;
+}
+
+.exp-params {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.exp-param { display: block; }
+.exp-param .field-label { display: block; margin-bottom: 4px; }
+.exp-param .input { width: 100%; }
+.exp-param .switch { margin-top: 2px; }
+
+/* ---- results ----------------------------------------------------------- */
+
+.exp-result { margin-top: 64px; }
+
+.exp-chainline {
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+  background: var(--well);
+  border-radius: var(--r-sm);
+  padding: 10px 14px;
+  margin: 0 0 20px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.exp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+.exp-fig { margin: 0; }
+
+.exp-fig img {
+  display: block;
+  width: 100%;
+  image-rendering: pixelated;
+  border-radius: var(--r-sm);
+  background: var(--well);
+  box-shadow:
+    -1px -1px 0 rgba(255, 255, 255, 0.05),
+    3px 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.exp-fig figcaption,
+.rowerr figcaption {
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  margin-top: 8px;
+}
+
+/* the per-row error plot: measurement, not a control, so no oxide */
+.rowerr { margin: 0; }
+.rowerr svg {
+  display: block;
+  border-radius: var(--r-sm);
+  box-shadow:
+    -1px -1px 0 rgba(255, 255, 255, 0.05),
+    3px 4px 12px rgba(0, 0, 0, 0.4);
+}
+.rowerr-bg { fill: var(--well); }
+.rowerr-bar { fill: var(--signal); }
+
+.exp-foot {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 20px;
+  align-items: start;
+  margin-top: 24px;
+}
+
+.exp-note {
+  max-width: var(--measure);
+  color: var(--ink-2);
+  font-size: var(--t-sm);
+  margin-top: 24px;
+}
+
+@media (max-width: 720px) {
+  .exp-foot { grid-template-columns: 1fr; }
+  .exp-chainline { white-space: normal; }
+}

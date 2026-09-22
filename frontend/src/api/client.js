@@ -42,6 +42,20 @@ export async function waveform(sessionId, buckets = 1000) {
   return unwrap(await fetch(`/api/waveform/${sessionId}?buckets=${buckets}`))
 }
 
+// The channel bench. The catalogue is served rather than hardcoded so the
+// page and the backend validator cannot drift apart.
+export async function channelEffects() {
+  return unwrap(await fetch('/api/channel/effects'))
+}
+
+export async function channel(payload) {
+  return unwrap(await fetch('/api/channel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }))
+}
+
 export const audioUrl     = (id) => `/api/audio/${id}`
 export const previewUrl   = (id) => `/api/preview/${id}`
 export const recoveredUrl = (id) => `/api/recovered/${id}`

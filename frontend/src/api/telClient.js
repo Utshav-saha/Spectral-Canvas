@@ -26,16 +26,29 @@ export const info = async () => unwrap(await fetch('/api/tel/info'))
 
 export const stage = (file) => postFile('/api/tel/stage', file)
 
-export const plan = async (imageId, size, quality) =>
-  unwrap(await fetch(`/api/tel/plan/${imageId}?size=${size}&quality=${quality}`))
+export const plan = async (generation, size, levels, colour) =>
+  unwrap(await fetch(
+    `/api/tel/plan?generation=${generation}&size=${size}&levels=${levels}&colour=${colour}`))
 
 export const send = (payload) => postJson('/api/tel/send', payload)
 
 export const call = (payload) => postJson('/api/tel/call', payload)
 
-export const inspect = (file) => postFile('/api/tel/inspect', file)
+// a recording comes in through upload; inspect then matches it to a send
+export const upload = (file) => postFile('/api/tel/upload', file)
+
+export const inspect = (payload) => postJson('/api/tel/inspect', payload)
 
 export const receive = (payload) => postJson('/api/tel/receive', payload)
+
+// A real SIP call, placed by the backend with pjsua. The browser only starts
+// it and polls; credentials live in the server's environment.
+export const dialStatus = async () => unwrap(await fetch('/api/tel/dial/status'))
+
+export const dial = (payload) => postJson('/api/tel/dial', payload)
+
+export const dialProgress = async (callId) =>
+  unwrap(await fetch(`/api/tel/dial/${callId}`))
 
 export const waveform = async (sessionId, buckets = 2000) =>
   unwrap(await fetch(`/api/tel/waveform/${sessionId}?buckets=${buckets}`))
