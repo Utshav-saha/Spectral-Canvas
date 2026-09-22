@@ -56,9 +56,9 @@ GENERATIONS = {
                     "about three quarters of pixels exact. It is fast on the "
                     "wire, so it carries the most detail."),
         "sizes": [16, 24, 32, 48, 64],
-        "default_size": 24,
+        "default_size": 48,
         "levels": [2, 4, 8, 16],
-        "default_levels": 4,
+        "default_levels": 16,
         "lossy": True,
     },
     "B": {
@@ -72,7 +72,7 @@ GENERATIONS = {
                     "32 x 32."),
         "sizes": [16, 24, 32],
         "default_size": 32,
-        "levels": [2, 4],
+        "levels": [2, 4, 16],
         "default_levels": 4,
         "lossy": False,
     },
@@ -166,7 +166,7 @@ def to_wav_bytes(audio, sample_rate=SAMPLE_RATE):
 
 
 def run_send(image_bytes, generation, size, levels, colour, locked=False,
-             caller=None, receiver=None, pin=None):
+             caller=None, receiver=None, pin=None, autocontrast=True):
     mode, _ = _check(generation, size, levels, colour)
     if locked:
         validate_credentials(caller, receiver, pin)
@@ -175,6 +175,7 @@ def run_send(image_bytes, generation, size, levels, colour, locked=False,
         open_image(image_bytes), target_width=size, target_height=size,
         gray_levels=levels, mode=mode, generation=generation,
         security_enabled=locked, caller=caller, receiver=receiver, pin=pin,
+        autocontrast=autocontrast,
     )
 
     sent_array = to_image_array(activation, levels)
@@ -193,6 +194,7 @@ def run_send(image_bytes, generation, size, levels, colour, locked=False,
             "scheme": metadata["scheme"],
             "band": metadata["band"],
             "lossy": GENERATIONS[generation]["lossy"],
+            "autocontrast": bool(autocontrast),
             "locked": bool(locked),
         },
         "stats": wf.global_stats(audio, SAMPLE_RATE),

@@ -82,9 +82,31 @@ def quantize(activation, levels=16):
 
 
 
-def process_image(image_path, target_width=16, target_height=16, gray_levels=16, mode="L"):
+def stretch_contrast(image, cutoff=1):
+    """Spread the histogram over the full 0..255 range before quantising.
+
+    A photograph rarely uses the whole range - a pale cat on a pale floor sits
+    in a narrow band of greys. Quantising that to a handful of levels throws
+    most of the subject away, and at 4 levels it stops looking like anything.
+    Stretching first means every level in the budget carries information.
+
+    preserve_tone keeps the three channels scaled together, so a colour picture
+    does not pick up a cast.
+    """
+    if image.mode == "RGB":
+        return ImageOps.autocontrast(image, cutoff=cutoff, preserve_tone=True)
+    return ImageOps.autocontrast(image, cutoff=cutoff)
+
+
+def process_image(image_path, target_width=16, target_height=16, gray_levels=16,
+                  mode="L", autocontrast=False):
 
     pre_image = preprocess_image(image_path, mode=mode)
+
+    # Before the resize, so the stretch is computed from every pixel rather
+    # than from whichever survived the downsample.
+    if autocontrast:
+        pre_image = stretch_contrast(pre_image)
 
     processed_image = resize_image(pre_image, target_width, target_height, mode)
 

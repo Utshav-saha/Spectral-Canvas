@@ -109,16 +109,20 @@ def budget_seconds(target_width, target_height, gray_levels=4, mode="L",
 
 def encode(source, target_width=None, target_height=None, gray_levels=None,
            mode="L", generation="B", security_enabled=False, caller=None,
-           receiver=None, pin=None, fec=True):
+           receiver=None, pin=None, fec=True, autocontrast=True):
     _check_generation(generation)
     defaults = DEFAULTS[generation]
     target_width = int(target_width or defaults["size"])
     target_height = int(target_height or defaults["size"])
     gray_levels = int(gray_levels or defaults["gray_levels"])
 
+    # On by default here: a call carries so few levels that spending them on a
+    # photograph's unused dynamic range is the difference between a picture and
+    # a smear.
     activation = process_image(source, target_width=target_width,
                                target_height=target_height,
-                               gray_levels=gray_levels, mode=mode)
+                               gray_levels=gray_levels, mode=mode,
+                               autocontrast=autocontrast)
 
     to_send = activation
     if security_enabled:
@@ -173,6 +177,7 @@ def encode(source, target_width=None, target_height=None, gray_levels=None,
         "security_enabled": bool(security_enabled),
         # permutation only - see the module docstring
         "security_scheme": "permutation" if security_enabled else None,
+        "autocontrast": bool(autocontrast),
         "duration_seconds": round(len(audio) / SAMPLE_RATE, 3),
         **wire,
     }

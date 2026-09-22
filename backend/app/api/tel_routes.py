@@ -24,6 +24,9 @@ class SendBody(BaseModel):
     size: int = 24
     levels: int = 4
     colour: bool = False
+    # stretch the histogram before quantising; a call carries too few levels
+    # to spend them on a photograph's unused dynamic range
+    autocontrast: bool = True
     security_enabled: bool = False
     caller: Optional[str] = None
     receiver: Optional[str] = None
@@ -124,7 +127,8 @@ def send(body: SendBody):
         result = tel.run_send(source["image_bytes"], body.generation, body.size,
                               body.levels, body.colour,
                               locked=body.security_enabled, caller=body.caller,
-                              receiver=body.receiver, pin=body.pin)
+                              receiver=body.receiver, pin=body.pin,
+                              autocontrast=body.autocontrast)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:

@@ -35,9 +35,9 @@ const FALLBACK_GENERATIONS = [
     summary:
       'The same parallel multitone scheme the WAV track uses, narrowed to 700-3000 Hz with two pilot tones. A voice codec models each frame with eight poles and cannot hold that many tone levels, so the picture arrives damaged - about three quarters of pixels exact. It is fast on the wire, so it carries the most detail.',
     sizes: [16, 24, 32, 48, 64],
-    default_size: 24,
+    default_size: 48,
     levels: [2, 4, 8, 16],
-    default_levels: 4,
+    default_levels: 16,
     lossy: true,
   },
   {
@@ -48,7 +48,7 @@ const FALLBACK_GENERATIONS = [
       'One tone at a time out of sixteen. The decoder takes an argmax and never compares loudness, so a codec that destroys amplitude cannot touch it - the picture arrives exact. The cost is airtime, which caps the grid at about 32 x 32.',
     sizes: [16, 24, 32],
     default_size: 32,
-    levels: [2, 4],
+    levels: [2, 4, 16],
     default_levels: 4,
     lossy: false,
   },
@@ -282,8 +282,9 @@ function CallSend({ info, generations, onSent }) {
   const [staged, setStaged] = useState(null)
   const [staging, setStaging] = useState(false)
   const [genId, setGenId] = useState('A')
-  const [size, setSize] = useState(24)
-  const [levels, setLevels] = useState(4)
+  const [size, setSize] = useState(48)
+  const [levels, setLevels] = useState(16)
+  const [autocontrast, setAutocontrast] = useState(true)
   const [colour, setColour] = useState(false)
   const [plan, setPlan] = useState(null)
 
@@ -406,7 +407,7 @@ function CallSend({ info, generations, onSent }) {
     try {
       const response = await tel.send({
         image_id: staged.image_id,
-        generation: genId, size, levels, colour,
+        generation: genId, size, levels, colour, autocontrast,
         security_enabled: secure,
         caller: secure ? caller : null,
         receiver: secure ? receiver : null,
@@ -551,6 +552,19 @@ function CallSend({ info, generations, onSent }) {
               <span className="switch-text">Send in colour</span>
             </label>
             <p className="field-note">Colour sends three passes, so the call runs three times as long.</p>
+
+            <label className="switch">
+              <input type="checkbox" checked={autocontrast}
+                     onChange={(e) => setAutocontrast(e.target.checked)} />
+              <span className="switch-box" aria-hidden="true" />
+              <span className="switch-text">Stretch the contrast</span>
+            </label>
+            <p className="field-note">
+              A photograph rarely uses the whole black-to-white range, and a call
+              carries very few levels &mdash; so spending them on range the picture
+              never touches is what makes a cat come out as a smear. Costs nothing
+              and changes no airtime. Turn it off to see the difference.
+            </p>
 
             <dl className="call-readout">
               <dt>On the wire</dt><dd>{plan ? `${plan.rows} × ${plan.columns}` : '—'}</dd>
