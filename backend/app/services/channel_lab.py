@@ -259,14 +259,26 @@ def _same_length(audio, reference):
     return fixed
 
 
+def model_status():
+    """Whether the Track 1 restoration model can run here."""
+    from spectral.restore import restorer
+    return restorer.status()
+
+
 def run_channel(session, chain, caller=None, receiver=None, pin=None,
-                undo=False, epsilon=None):
+                undo=False, epsilon=None, restore=False):
     """Clean transmission -> degraded audio -> decode -> what it cost.
 
     With `undo`, the same degraded audio also goes through the LTI inverse
     (spectral/channel/inverse.py) and is decoded a second time, so the page
     can show damaged and repaired side by side. Effects with no inverse are
     left alone, which is the honest half of the demonstration.
+
+    With `restore`, the learned model runs on top of that - on the inverted
+    picture when there is one, otherwise on the damaged one, because the
+    inverse is exact where it applies and the model should only be asked for
+    what is left. All three are returned, never merged: that is the
+    three-column table RESTORATION_PLAN Phase 5 asks for.
     """
     metadata = session.get("metadata")
     if not metadata:
@@ -315,6 +327,25 @@ def run_channel(session, chain, caller=None, receiver=None, pin=None,
             "stats": wf.global_stats(repaired, sample_rate),
             "epsilon": eps,
             **what,
+        }
+
+    if restore:
+        from spectral.restore import restorer
+
+        if not restorer.available():
+            raise ValueError(restorer.status()["message"])
+
+        # on top of the inverse when it ran: the inverse is exact where it
+        # applies, and the model should only be handed what is left
+        source = result.get("undone", result)
+        levels = metadata.get("gray_levels", 16)
+        restored_image = restorer.restore_image(source["image_array"], levels)
+        result["restored"] = {
+            "png": pipeline.to_png_bytes(restored_image),
+            "image_array": restored_image,
+            "metrics": pipeline.image_metrics(
+                restored_image, session.get("activation"), levels),
+            "after": "inverse" if "undone" in result else "channel",
         }
 
     return result
