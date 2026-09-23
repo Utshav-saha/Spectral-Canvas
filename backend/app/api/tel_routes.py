@@ -64,11 +64,13 @@ class DialBody(BaseModel):
     # a SIP address, not a phone number: this reaches the Linphone app on the
     # phone over SIP, and never touches the PSTN
     target: str
-    # PCMU by default, the way the CLI has always done it. Left unrestricted,
-    # the call negotiates whatever both ends happen to prefer, and the page
-    # cannot tell you afterwards whether the result meant anything. G.711 is
-    # the gentle one: it carries a tone without modelling it.
-    codec: Optional[str] = "PCMU"
+    # GSM 06.10, which is the channel this whole project is about and the one
+    # channel_sim models. Left unrestricted, the call negotiates whatever both
+    # ends happen to prefer, and the page cannot tell you afterwards whether
+    # the result meant anything: PCMU carries a tone without modelling it, so a
+    # clean decode over G.711 says nothing about surviving a voice codec. The
+    # handset has to offer this too - Linphone's codec list, GSM enabled.
+    codec: Optional[str] = "GSM"
 
 
 class PlayBody(BaseModel):
@@ -81,7 +83,9 @@ class PlayBody(BaseModel):
 
 class AnswerBody(BaseModel):
     session_id: str
-    codec: Optional[str] = "PCMU"
+    # the same codec as dialling: the direction of the call must not change
+    # what the channel does to the tones
+    codec: Optional[str] = "GSM"
 
 
 class InspectBody(BaseModel):

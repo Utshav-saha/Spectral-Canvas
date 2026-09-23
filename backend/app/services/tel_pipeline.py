@@ -327,7 +327,10 @@ def locate(audio, metadata):
     from voip import sync as voip_sync
     import fsk_codec as fsk
     located = voip_sync.find_preamble(audio)
-    frames = len(fsk.PREAMBLE) + metadata["fsk"]["n_symbols"]
+    info = metadata["fsk"]
+    # wire_symbols counts the re-sync markers; n_symbols does not, so a
+    # marker-carrying transmission is longer on the wire than its payload
+    frames = len(fsk.PREAMBLE) + int(info.get("wire_symbols") or info["n_symbols"])
     end = located.offset + frames * fsk.SYMBOL_SAMPLES
     return {"offset": int(located.offset), "score": round(float(located.score), 4),
             "found": bool(located.found), "truncated": bool(end > len(audio))}
@@ -396,7 +399,7 @@ def signal_health(audio, metadata, offset=0):
             "recordings like this: about one symbol in ten. Turn the phone's "
             "call volume down - both bad recordings so far came back pinned at "
             "full scale - and check that echo cancellation and noise suppression "
-            "really are off and PCMU is the only codec enabled."
+            "really are off and that GSM is enabled in the phone's codec list."
         )
     elif clipped > CLIPPED_FRACTION:
         report["warning"] = (
@@ -473,6 +476,13 @@ def _retimed(trimmed, metadata):
         return trimmed
     info = metadata.get("fsk") or {}
     if not info.get("n_symbols"):
+        return trimmed
+    # A transmission carrying re-sync markers retimes itself, absolutely, at
+    # every marker. Stretching it onto one uniform grid first can only fight
+    # that: measured on the real 860 s call, retiming scored *worse* than
+    # leaving it alone (0.883 vs 0.852 syndrome rate) because its 8-symbol
+    # margin search is noise once the margin is ~10 rather than ~200.
+    if info.get("resync_interval"):
         return trimmed
     try:
         import fsk_codec as fsk

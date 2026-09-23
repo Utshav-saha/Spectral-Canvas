@@ -232,13 +232,16 @@ def test_a_clipped_recording_says_so():
     assert health["warning"]
 
 
-def test_the_real_call_defaults_to_a_codec_that_carries_tones():
-    """Left unrestricted the call negotiates anything, and a codec that models
-    speech rather than carrying it is what buries the tones."""
+def test_the_real_call_defaults_to_the_codec_the_project_is_about():
+    """Left unrestricted the call negotiates whatever both ends prefer, and a
+    transparent codec makes a clean decode prove nothing. GSM 06.10 is the one
+    channel_sim models, so a real call and the simulated one are comparable.
+    Both directions have to agree: which end dialled must not change the
+    channel."""
     from app.api.tel_routes import AnswerBody, DialBody
 
-    assert DialBody(session_id="x", target="sip:a@b").codec == "PCMU"
-    assert AnswerBody(session_id="x").codec == "PCMU"
+    assert DialBody(session_id="x", target="sip:a@b").codec == "GSM"
+    assert AnswerBody(session_id="x").codec == "GSM"
 
 
 def test_inspect_reports_whether_the_transmission_was_locked(client, image_id):

@@ -38,6 +38,45 @@ PREAMBLE = np.array([0, M - 1, 0, M - 1, 0, M - 1, 0, M - 1])
 HEADER_BITS = 16
 HEADER_SYMBOLS = 7          # 16 data bits -> 28 coded bits -> 7 symbols
 
+# --------------------------------------------------------------------------
+# Re-sync markers
+#
+# The modem locks its grid once, from the preamble, and then counts symbols.
+# That is fine on a file and fine on a short call. On a long one it is not:
+# measured on a real 860 s Linphone call, the handset's jitter buffer slipped
+# 700 samples - 2.2 whole symbols - in discrete jumps, and every symbol after
+# the first jump was read from the wrong place.
+#
+# Nothing downstream can repair that, because no measurement taken from the
+# waveform can see it. A grid shifted by a whole symbol is still perfectly
+# aligned to *a* symbol boundary, so margin, tone concentration and every
+# other alignment score peak identically at every multiple of SYMBOL_SAMPLES.
+# Measured on that recording, at the segment needing -700 samples:
+#
+#     shift    -1000   -750   -700   -450   -100   +250
+#     margin   14.94  15.00  15.00  15.31  14.84  14.68   <- blind
+#     correct    5.5%  92.2%  96.7%  11.5%   6.8%   4.7%
+#
+# The tones themselves arrived fine - 92-98% correct once realigned. The only
+# thing missing was something in the stream to realign *to*. So the stream now
+# carries one, and a slip can only cost the segment it happens in.
+#
+# Unlike PREAMBLE, this sequence is NOT periodic: PREAMBLE alternates with a
+# period of two symbols, so it scores the same shifted by two, which is
+# exactly the ambiguity being fixed here. These eight tones are all distinct,
+# so any nonzero shift lines up none of them.
+RESYNC = np.array([0, 9, 2, 13, 6, 15, 4, 11])
+
+# Payload symbols between markers. 512 symbols is 20.5 s, and eight marker
+# symbols every 512 costs 1.6% of the airtime.
+RESYNC_INTERVAL = 512
+
+# How far a marker is hunted for around where it was expected. Because every
+# marker re-anchors absolutely, this has to cover one segment's slip, not the
+# whole call's: four symbols is more than six times the worst jump measured
+# between two markers.
+RESYNC_SPAN = 4 * SYMBOL_SAMPLES
+
 
 # --------------------------------------------------------------------------
 # Hamming(7,4) - corrects one bit error per 7-bit codeword
@@ -97,9 +136,13 @@ def _to_symbols(bits):
     return bits.reshape(-1, BITS_PER_SYMBOL) @ np.array([8, 4, 2, 1]), pad
 
 
-def modulate(bits, fec=True, header=None):
+def modulate(bits, fec=True, header=None, resync=RESYNC_INTERVAL):
     """header: optional 16-bit array describing the payload, sent uncoded of
-    interleaving so the receiver can read it standalone."""
+    interleaving so the receiver can read it standalone.
+
+    resync: payload symbols between re-sync markers, or 0 for none. The
+    markers are what let a long call survive a jitter-buffer slip; see RESYNC.
+    """
     bits = np.asarray(bits, dtype=np.uint8)
     n_payload = len(bits)
 
@@ -123,14 +166,27 @@ def modulate(bits, fec=True, header=None):
         hsym, _ = _to_symbols(hcoded)
         head = [_tone(s, t, window) for s in hsym[:HEADER_SYMBOLS]]
 
+    # Markers go *between* segments, so the first segment starts where it
+    # always did and a reader that ignores them still finds the first 512.
+    body = []
+    if resync:
+        for i in range(0, len(symbols), resync):
+            if i:
+                body.extend(int(s) for s in RESYNC)
+            body.extend(int(s) for s in symbols[i:i + resync])
+    else:
+        body = [int(s) for s in symbols]
+
     audio = np.concatenate(
         [_tone(s, t, window) for s in PREAMBLE] + head +
-        [_tone(s, t, window) for s in symbols]
+        [_tone(s, t, window) for s in body]
     )
     audio = audio / max(np.max(np.abs(audio)), 1e-12) * 0.7
 
     info = {
         "n_payload_bits": int(n_payload),
+        # payload symbols only: the markers are wire overhead and never reach
+        # bits_to_activation, so every existing reader of this field is right
         "n_symbols": int(len(symbols)),
         "fec": bool(fec),
         "hamming_pad": int(ham_pad),
@@ -139,6 +195,8 @@ def modulate(bits, fec=True, header=None):
         "sample_rate": SAMPLE_RATE,
         "symbol_ms": SYMBOL_MS,
         "has_header": header is not None,
+        "resync_interval": int(resync or 0),
+        "wire_symbols": int(len(body)),
         "duration_seconds": len(audio) / SAMPLE_RATE,
     }
     return audio, info
@@ -175,6 +233,30 @@ def find_preamble(audio, search_seconds=3.0, step=4):
     return fine
 
 
+def _marker_score(audio, offset):
+    """How much like a RESYNC marker the symbols at `offset` look."""
+    mags = _symbol_magnitudes(audio, offset, len(RESYNC))
+    total = mags.sum(axis=1) + 1e-12
+    return float(np.mean(mags[np.arange(len(RESYNC)), RESYNC] / total))
+
+
+def find_marker(audio, expected, span=RESYNC_SPAN, step=8):
+    """Where the marker near `expected` really is; returns the offset AFTER it.
+
+    Absolute, not relative: each marker is hunted for around where the symbol
+    count says it should be, so an error corrected here does not carry into
+    the next segment and cannot accumulate over a long call.
+    """
+    room = len(audio) - len(RESYNC) * SYMBOL_SAMPLES
+    lo, hi = max(0, expected - span), min(room, expected + span)
+    if hi <= lo:
+        return expected + len(RESYNC) * SYMBOL_SAMPLES
+    coarse = max(range(lo, hi + 1, step), key=lambda o: _marker_score(audio, o))
+    fine = max(range(max(lo, coarse - step), min(hi, coarse + step) + 1),
+               key=lambda o: _marker_score(audio, o))
+    return fine + len(RESYNC) * SYMBOL_SAMPLES
+
+
 def read_header(audio, offset=None):
     """Decode the 16-bit header standalone, before the payload length is known."""
     if offset is None:
@@ -199,8 +281,22 @@ def demodulate(audio, info, offset=None):
         # self-describing mode: read every symbol that fits
         n_symbols = max(0, (len(audio) - data_start) // SYMBOL_SAMPLES)
 
-    mags = _symbol_magnitudes(audio, data_start, n_symbols)
-    symbols = np.argmax(mags, axis=1)
+    interval = int(info.get("resync_interval") or 0)
+    if interval:
+        # Read one segment, re-anchor on the marker that follows it, repeat.
+        chunks, pos, left, first = [], data_start, n_symbols, True
+        while left > 0:
+            if not first:
+                pos = find_marker(audio, pos)
+            count = min(interval, left)
+            chunks.append(np.argmax(_symbol_magnitudes(audio, pos, count), axis=1))
+            pos += count * SYMBOL_SAMPLES
+            left -= count
+            first = False
+        symbols = np.concatenate(chunks)
+    else:
+        mags = _symbol_magnitudes(audio, data_start, n_symbols)
+        symbols = np.argmax(mags, axis=1)
 
     bits = ((symbols[:, None] >> np.array([3, 2, 1, 0])) & 1).astype(np.uint8).ravel()
 

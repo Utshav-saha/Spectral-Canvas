@@ -435,7 +435,8 @@ def _why_it_never_connected(log_text, target):
         return (f"{target} was reached but refused the audio (488 Not "
                 "Acceptable Here). That is a media mismatch, not a ringing "
                 "problem: in the phone's Linphone settings set Media "
-                "encryption to None, and enable the PCMU codec.")
+                "encryption to None, and enable the GSM codec - this end "
+                "offers nothing else, so the handset has to allow it.")
     if "486" in codes:
         return f"{target} is busy (486). Clear the call on the phone and retry."
     if "603" in codes or "decline" in log_text.lower():

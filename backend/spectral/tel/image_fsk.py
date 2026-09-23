@@ -72,5 +72,11 @@ def budget(rows, columns, channels=1, levels=4, fec=True):
     bpp = _bits_per_pixel(levels)
     payload = rows * columns * channels * bpp
     coded = payload * (7 / 4) if fec else payload
-    symbols = np.ceil(coded / fsk.BITS_PER_SYMBOL) + len(fsk.PREAMBLE)
+    symbols = np.ceil(coded / fsk.BITS_PER_SYMBOL)
+    # the re-sync markers ride on the wire too: one between each pair of
+    # segments, which is what keeps a long call decodable at all
+    markers = 0
+    if fsk.RESYNC_INTERVAL:
+        markers = max(0, int(np.ceil(symbols / fsk.RESYNC_INTERVAL)) - 1)
+    symbols += len(fsk.PREAMBLE) + markers * len(fsk.RESYNC)
     return payload, float(symbols * fsk.SYMBOL_MS / 1000.0)

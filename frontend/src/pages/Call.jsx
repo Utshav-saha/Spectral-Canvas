@@ -1446,8 +1446,10 @@ function RealCall({ info, sip, onSip, onDial, onWait, state, error, seconds }) {
         )}
         {state?.state === "done" && (
           <p className="field-note">
-            Check the codec line above. If pjsua fell back to PCMU the line was
-            nearly transparent, and a clean decode over it proves little.
+            Check the codec line above. It should read GSM &mdash; that is the
+            codec this end offers and the one the simulated call models, so the
+            two are comparable. Anything else came through a gentler channel,
+            and a clean decode over it proves less than it looks.
           </p>
         )}
         {state?.error && (
