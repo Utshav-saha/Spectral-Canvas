@@ -10,7 +10,7 @@ stop-band annihilated, aliasing that folded two rows into one, and whatever
 noise survives. Handing it work the inverse already did just teaches it to
 redo that work worse.
 
-**The input is 5 planes**, which is what `restore_best.pt` expects:
+**The input is 5 planes**, which is what `restore_v3.pt` expects:
 
     0,1,2   the activation, 0..1, red/green/blue (grayscale is repeated)
     3       the row index, 0 at the top row and 1 at the bottom
@@ -22,25 +22,40 @@ the model has to be told which row it is standing on. Channel 4 marks rows
 that carry no signal at all, so it treats them as blanks to fill rather than
 data to polish.
 
-**The output is a residual** - the change to add to the activation. Measured
-on this checkpoint, taking the output as the picture scores about 0.33 mean
-activation error against 0.05-0.09 for adding it, so residual it is.
+**The output is a residual** - the change to add to the activation. Neither
+checkpoint recorded how it was fed, so both conventions were measured rather
+than assumed, and `restore_v3.pt` agrees with the one before it: reading the
+output as the picture scores 0.23-0.24 mean activation error against
+0.044-0.050 for adding it, and inverting the channel-4 mask scores 0.33-0.35.
+Both wrong turns degrade quietly, which is why they are measured.
 
-**What this checkpoint currently does**, measured end to end at 128x128 on
-the real pipeline (mean activation error, lower is better):
+**What this checkpoint currently does.** Measured end to end on the real
+pipeline at 128x128 grayscale, 16 levels, against the activation that was
+sent (mean activation error, lower is better). `restore_best.pt` is the
+checkpoint this one replaced, run on the same bench:
 
-    clipping         0.1471 -> 0.0939     helps, the case it was built for
-    band-stop        0.2011 -> 0.1658     helps
-    low-pass (raw)   0.3213 -> 0.2593     helps
-    low-pass (after the inverse)  0.0578 -> 0.0958   hurts
-    noise            0.0246 -> 0.0527     hurts
-    already clean    0.0000 -> 0.0523     hurts
+                   damaged   +inverse   v3     restore_best
+    clipping        0.0453    0.0453   0.0431    0.0373
+    clip + noise    0.0423    0.0423   0.0424    0.0365
+    noise           0.0003    0.0003   0.0004    0.0379
+    band-stop       0.0826    0.0472   0.0427    0.0820
+    low-pass        0.1444    0.0450   0.0417    0.0795
+    echo            0.0533    0.0000   0.0000    0.0377
+    already clean   0.0000    0.0000   0.0000    0.0377
 
-So it earns its place on heavy, non-invertible damage and gets in the way of
-everything else. That is why the bench reports all three columns - damaged,
-inverted, model - rather than quietly applying the model and showing one
-number. Swap in a better `restore_best.pt` and these numbers move; nothing
-else has to change.
+The shape of the trade changed, and that is the reason to prefer v3. The old
+checkpoint bought its win on clipping by repainting everything it touched: it
+put 0.0377 of error into a picture that had *nothing* wrong with it, and it
+broke echo, which the inverse had already undone exactly. v3 leaves clean
+input alone (0.0000), keeps echo exact, and now *improves* band-stop and
+low-pass on top of the inverse where the old one made both markedly worse.
+It gives up a little on raw clipping (0.0431 against 0.0373) to do it.
+
+So it no longer has to be kept away from undamaged pictures. The bench still
+reports all three columns - damaged, inverted, model - because which stage
+earned the repair is the thing worth showing, not the final number alone.
+Swap in another checkpoint and these numbers move; nothing else has to change,
+because the shape is read off the file.
 """
 
 import os
@@ -51,7 +66,7 @@ from spectral.restore import model as unet
 
 MODEL_PATH = os.environ.get("SPECTRAL_RESTORER", os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "tools", "restore_best.pt"))
+    "tools", "restore_v3.pt"))
 
 # A row carrying less than this share of the average row's energy is treated
 # as killed rather than quiet. From RESTORATION_PLAN 1b.
@@ -76,7 +91,7 @@ def status():
         return {"ready": False, "message": unet.MISSING_TORCH}
     if not os.path.isfile(MODEL_PATH):
         return {"ready": False,
-                "message": f"No model file at {MODEL_PATH}. Put restore_best.pt "
+                "message": f"No model file at {MODEL_PATH}. Put restore_v3.pt "
                            "there, or set SPECTRAL_RESTORER to where it is."}
     try:
         _, shape = load()
