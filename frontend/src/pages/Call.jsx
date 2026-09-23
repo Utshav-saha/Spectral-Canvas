@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import WaveformScope from "../components/WaveformScope";
 import { downloadUrl } from "../api/client";
 import * as tel from "../api/telClient";
@@ -18,7 +19,24 @@ import "./Call.css";
    Generation C (WebP + Reed-Solomon) was cut: byte-exact or nothing, so
    there was no graded loss to measure or learn from. */
 
+const MODES = [
+  { id: "send", label: "Send" },
+  { id: "receive", label: "Receive" },
+];
+
 const SEND_STAGES = ["Picture", "Encode", "Call", "Rebuilt"];
+
+/* Every dial state that means the call has not finished yet. The backend
+   walks registering -> ringing -> answered -> playing before it is done. */
+const DIALLING = [
+  "dialling",
+  "registering",
+  "ringing",
+  "waiting",
+  "answered",
+  "playing",
+];
+const RECEIVE_STAGES = ["File", "Inspect", "Key", "Rebuilt"];
 
 const FALLBACK_GENERATIONS = [
   {
@@ -53,6 +71,8 @@ const NOISES = [-60, -45, -35, -25];
 const digits = (v) => v.replace(/\D/g, "");
 
 export default function Call() {
+  const [params, setParams] = useSearchParams();
+  const mode = params.get("mode") === "receive" ? "receive" : "send";
   const [info, setInfo] = useState(null);
 
   useEffect(() => {
@@ -66,12 +86,16 @@ export default function Call() {
     ? info.generations
     : FALLBACK_GENERATIONS;
 
+  /* The Send tab's last transmission. A recording of a real call carries no
+     header, so the Receive tab needs the sender's settings to rebuild it. */
+  const [reference, setReference] = useState(null);
+
   return (
     <main className="call">
       <div className="shell">
         <p className="slug">
           <span>Call</span>
-          <span>simulated</span>
+          <span>{mode}</span>
           <span>Gen A &middot; multitone</span>
           <span>Gen B &middot; 16-FSK</span>
           <span>
@@ -95,9 +119,31 @@ export default function Call() {
               it is. Generation B puts the picture where the codec cannot reach
               it and arrives exact. Generation A leaves it where the codec does
               the damage, and arrives broken in a way that is worth measuring.
-              The call is simulated: the codec, the lost packets and the noise
-              are real, the phone is not.
+              Simulate the call to study it, or place a real one over SIP and
+              rebuild the picture from what the phone recorded.
             </p>
+            <div
+              className="modeswitch call-modes"
+              role="tablist"
+              aria-label="Send or receive"
+            >
+              {MODES.map((m) => (
+                <button
+                  key={m.id}
+                  role="tab"
+                  type="button"
+                  aria-selected={mode === m.id}
+                  className={`modeswitch-b ${mode === m.id ? "is-on" : ""}`}
+                  onClick={() =>
+                    setParams(m.id === "send" ? {} : { mode: m.id }, {
+                      replace: true,
+                    })
+                  }
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <dl className="head-readout">
@@ -114,7 +160,17 @@ export default function Call() {
           </dl>
         </header>
 
-        <CallSend info={info} generations={generations} />
+        {/* both stay mounted so switching tabs never throws work away */}
+        <div hidden={mode !== "send"}>
+          <CallSend
+            info={info}
+            generations={generations}
+            onSent={setReference}
+          />
+        </div>
+        <div hidden={mode !== "receive"}>
+          <CallReceive reference={reference} model={info?.model} />
+        </div>
       </div>
     </main>
   );
@@ -485,7 +541,7 @@ const fresh = (response) => ({
 
 /* ------------------------------------------------------------------------ */
 
-function CallSend({ info, generations }) {
+function CallSend({ info, generations, onSent }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [staged, setStaged] = useState(null);
@@ -517,6 +573,11 @@ function CallSend({ info, generations }) {
   const [rxWave, setRxWave] = useState(null);
   const [rxOpen, setRxOpen] = useState(false);
 
+  const [sip, setSip] = useState(() => localStorage.getItem("sc.sip") || "");
+  const [dialInfo, setDialInfo] = useState(null);
+  const [dialling, setDialling] = useState(null);
+  const [dialError, setDialError] = useState("");
+
   const [from, setFrom] = useState("rx");
   const [keyOn, setKeyOn] = useState(false);
   const [kCaller, setKCaller] = useState("");
@@ -538,6 +599,50 @@ function CallSend({ info, generations }) {
     setPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
+
+  useEffect(() => {
+    tel
+      .dialStatus()
+      .then(setDialInfo)
+      .catch(() => setDialInfo(null));
+  }, []);
+
+  /* Poll while pjsua is on the line. The call lasts as long as the
+     transmission does, so this is the only way to know it finished. */
+  useEffect(() => {
+    if (!dialling || !DIALLING.includes(dialling.state)) return;
+    const timer = setInterval(async () => {
+      try {
+        setDialling(await tel.dialProgress(dialling.call_id));
+      } catch {
+        clearInterval(timer);
+      }
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [dialling]);
+
+  const waitForCall = async () => {
+    setDialError("");
+    try {
+      setDialling(await tel.answerCall({ session_id: tx.session_id }));
+    } catch (e) {
+      setDialError(e.message);
+    }
+  };
+
+  const placeRealCall = async () => {
+    setDialError("");
+    try {
+      localStorage.setItem("sc.sip", sip);
+    } catch {
+      /* private window */
+    }
+    try {
+      setDialling(await tel.dial({ session_id: tx.session_id, target: sip }));
+    } catch (e) {
+      setDialError(e.message);
+    }
+  };
 
   const pick = async (f) => {
     if (!f) return;
@@ -611,6 +716,8 @@ function CallSend({ info, generations }) {
       });
       setTx(response);
       setFrom("tx");
+      // the Receive tab needs these settings to rebuild a recording of this call
+      onSent?.({ ...response, filename: file?.name });
       // the receiver starts from what the sender used; change it to try a wrong PIN
       setKeyOn(secure);
       setKCaller(caller);
@@ -1188,6 +1295,17 @@ function CallSend({ info, generations }) {
               </div>
             </div>
 
+            <RealCall
+              info={dialInfo}
+              sip={sip}
+              onSip={setSip}
+              onDial={placeRealCall}
+              onWait={waitForCall}
+              state={dialling}
+              error={dialError}
+              seconds={tx.report.seconds}
+            />
+
             <Rebuilt
               result={rebuilt}
               sentUrl={tx.sent_url}
@@ -1196,6 +1314,433 @@ function CallSend({ info, generations }) {
           </div>
         </section>
       )}
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+
+function RealCall({ info, sip, onSip, onDial, onWait, state, error, seconds }) {
+  /* The browser starts the call; pjsua places it. Linphone's own Python
+     bindings are not on PyPI and have to be compiled from the SDK source, and
+     none of that is needed: sip.linphone.org is an ordinary SIP registrar and
+     the app on the phone answers any SIP client. */
+  const ready = info?.pjsua && info?.configured;
+  const busy = DIALLING.includes(state?.state);
+
+  return (
+    <div className="module call-dial">
+      <div className="module-head">
+        <h2>Place a real call</h2>
+        {info && (
+          <span className={`filecard-tag ${ready ? "" : "locked"}`}>
+            <span
+              className={`led ${ready ? "is-open" : "is-locked"}`}
+              aria-hidden="true"
+            />
+            {ready ? "Ready" : "Not configured"}
+          </span>
+        )}
+      </div>
+
+      <div className="module-body">
+        {!ready && info?.message && (
+          <div className="alert alert-error">
+            <p>{info.message}</p>
+          </div>
+        )}
+
+        <div className="field">
+          <label className="field-label" htmlFor="sip-target">
+            Your phone&rsquo;s SIP address
+          </label>
+          <input
+            id="sip-target"
+            className="input mono"
+            value={sip}
+            placeholder="sip:yourphone@sip.linphone.org"
+            onChange={(e) => onSip(e.target.value)}
+            disabled={!ready || busy}
+          />
+          <p className="field-note">
+            The second Linphone account, the one signed in on the phone &mdash;
+            not the one this server calls from
+            {info?.identity ? (
+              <>
+                {" "}
+                (<span className="mono">{info.identity}</span>)
+              </>
+            ) : null}
+            . This is SIP to SIP, so it never touches the phone network and
+            costs nothing.
+          </p>
+        </div>
+
+        <ol className="call-steps">
+          <li>Answer on the phone.</li>
+          <li>
+            <b>Mute the microphone</b> &mdash; Linphone records both directions,
+            so room noise would land on top of the tones.
+          </li>
+          <li>
+            Press <b>Record</b> in the call.
+          </li>
+          <li>Start the call below and wait {Math.ceil(seconds)}&nbsp;s.</li>
+          <li>Stop recording, share the file back, and open the Receive tab.</li>
+        </ol>
+        <p className="field-note">
+          If the phone never rings, use{" "}
+          <b>Or let the phone call this Mac</b> instead and dial{" "}
+          <span className="mono">{info?.identity || "this account"}</span> from
+          the handset. A phone placing a call needs no push notification, which
+          is the usual reason an incoming one is only ever seen in the call
+          history. Same account, same codec, same recording.
+        </p>
+        <p className="field-note">
+          The recording has to be made on the phone: pjsua can only record its
+          own inbound leg, which is your muted microphone, not the tones the
+          phone received. No app can capture another app&rsquo;s call audio.
+        </p>
+
+        {state && (
+          <dl className="call-readout">
+            <dt>State</dt>
+            <dd>{state.state}</dd>
+            <dt>Target</dt>
+            <dd className="mono">{state.target}</dd>
+            <dt>Elapsed</dt>
+            <dd>
+              {state.elapsed ?? state.seconds ?? 0}&nbsp;s of{" "}
+              {state.expected_seconds}&nbsp;s
+            </dd>
+            {state.negotiated && (
+              <>
+                <dt>Codec</dt>
+                <dd className="mono">{state.negotiated}</dd>
+              </>
+            )}
+          </dl>
+        )}
+        {state?.state === "waiting" && (
+          <div className="alert alert-ok">
+            <p>
+              Waiting. On the phone, dial{" "}
+              <b className="mono">{state.dial_this || info?.identity}</b> from
+              the Linphone app now. It answers automatically.
+            </p>
+          </div>
+        )}
+        {state?.state === "answered" && (
+          <div className="alert alert-ok">
+            <p>
+              Answered. <b>Mute the phone&rsquo;s microphone and press Record
+              now</b> &mdash; the tones start in about{" "}
+              {Math.round(state.grace_seconds ?? 8)}&nbsp;s.
+            </p>
+          </div>
+        )}
+        {state?.state === "playing" && (
+          <div className="alert alert-ok">
+            <p>Playing. Leave both alone until it finishes.</p>
+          </div>
+        )}
+        {state?.state === "done" && (
+          <p className="field-note">
+            Check the codec line above. If pjsua fell back to PCMU the line was
+            nearly transparent, and a clean decode over it proves little.
+          </p>
+        )}
+        {state?.error && (
+          <div className="alert alert-error">
+            <p>{state.error}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="module-foot">
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={onDial}
+          disabled={!ready || busy || !sip.trim()}
+        >
+          {busy ? "On the line…" : "Call and play"}
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={onWait}
+          disabled={!ready || busy}
+        >
+          {busy ? "…" : "Or let the phone call this Mac"}
+        </button>
+        {error && (
+          <div className="alert alert-error">
+            <p>{error}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+
+function CallReceive({ reference, model }) {
+  const [file, setFile] = useState(null);
+  const [found, setFound] = useState(null);
+  const [wave, setWave] = useState(null);
+  const [selected, setSelected] = useState(false);
+
+  const [keyOn, setKeyOn] = useState(false);
+  const [caller, setCaller] = useState("");
+  const [receiver, setReceiver] = useState("");
+  const [pin, setPin] = useState("");
+
+  const [busy, setBusy] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const [error, setError] = useState("");
+  const [rebuilt, setRebuilt] = useState(null);
+  const [audioSrc, setAudioSrc] = useState(null);
+  const dropRef = useRef(null);
+
+  useEffect(() => {
+    if (!file) {
+      setAudioSrc(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setAudioSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const take = async (f) => {
+    if (!f) return;
+    setFile(f);
+    setError("");
+    setRebuilt(null);
+    setFound(null);
+    setWave(null);
+    setSelected(false);
+    setBusy(true);
+    try {
+      const uploaded = await tel.upload(f);
+      /* A recording carries no header of its own. If the Send tab has a
+         transmission open, inspect against its settings; otherwise say so. */
+      const response = reference
+        ? {
+            ...uploaded,
+            ...(await tel.inspect({
+              session_id: uploaded.session_id,
+              reference_id: reference.session_id,
+            })),
+          }
+        : uploaded;
+      setFound(response);
+      setWave(await tel.waveform(uploaded.session_id));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const open = async () => {
+    setError("");
+    setOpening(true);
+    try {
+      const response = await tel.receive({
+        session_id: found.session_id,
+        reference_id: reference?.session_id,
+        security_enabled: keyOn,
+        caller: keyOn ? caller : null,
+        receiver: keyOn ? receiver : null,
+        pin: keyOn ? pin : null,
+      });
+      setRebuilt(fresh(response));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  const stage = rebuilt ? 4 : found ? (keyOn ? 2 : 3) : file ? 1 : 0;
+  const alertKind = found?.found ? "alert-ok" : "alert-error";
+
+  return (
+    <>
+      <StageRail stages={RECEIVE_STAGES} stage={stage} />
+
+      <div className="rcv-grid">
+        <section className="module">
+          <div className="module-head">
+            <h2>Incoming</h2>
+          </div>
+
+          <div className="module-body">
+            <div
+              ref={dropRef}
+              className="drop"
+              onDragOver={(e) => {
+                e.preventDefault();
+                dropRef.current?.classList.add("is-over");
+              }}
+              onDragLeave={() => dropRef.current?.classList.remove("is-over")}
+              onDrop={(e) => {
+                e.preventDefault();
+                dropRef.current?.classList.remove("is-over");
+                take(e.dataTransfer.files?.[0]);
+              }}
+            >
+              {file ? (
+                <>
+                  <p className="drop-title mono">{file.name}</p>
+                  <p className="drop-hint">
+                    {(file.size / 1024).toFixed(0)} KB
+                  </p>
+                  <label className="btn btn-ghost drop-btn">
+                    Load a different file
+                    <input
+                      type="file"
+                      accept="audio/*,.wav,.mka,.mkv,.m4a,.caf,.mp4,.ogg,.opus,.3gp,.amr,.mp3"
+                      hidden
+                      onChange={(e) => take(e.target.files?.[0])}
+                    />
+                  </label>
+                </>
+              ) : (
+                <>
+                  <p className="drop-title">Drop a call recording here</p>
+                  <p className="drop-hint">
+                    A tx.wav from the Send tab, or a recording made off a real
+                    call &mdash; .wav, and .mkv/.mka/.m4a/.caf/.opus where
+                    ffmpeg is installed. Linphone on a phone writes Matroska,
+                    so .mkv and .mka are the usual ones. Any sample rate works;
+                    it is brought to 8&nbsp;kHz first.
+                  </p>
+                  <label className="btn btn-primary drop-btn">
+                    Browse files
+                    <input
+                      type="file"
+                      accept="audio/*,.wav,.mka,.mkv,.m4a,.caf,.mp4,.ogg,.opus,.3gp,.amr,.mp3"
+                      hidden
+                      onChange={(e) => take(e.target.files?.[0])}
+                    />
+                  </label>
+                </>
+              )}
+            </div>
+
+            {busy && <p className="field-note">Reading the recording…</p>}
+
+            {file && !reference && !busy && (
+              <div className="alert alert-error call-alert">
+                <p>
+                  A recording carries no header, so its grid, generation and
+                  level count have to come from the transmission it is a
+                  recording of. Encode one on the Send tab first, then come back
+                  — this page keeps it.
+                </p>
+              </div>
+            )}
+
+            {found && (
+              <div className="rcv-stack">
+                <div className={`alert ${alertKind}`}>
+                  <p>{found.message}</p>
+                </div>
+
+                <WavCard
+                  name={file?.name}
+                  stats={found.stats}
+                  selected={selected}
+                  onSelect={() => setSelected(true)}
+                  locked={found.found ? Boolean(found.locked) : undefined}
+                  detail={
+                    found.resampled ? `from ${found.sample_rate_in} Hz` : null
+                  }
+                />
+                {!selected && (
+                  <p className="field-note">
+                    Open the file to inspect its waveform.
+                  </p>
+                )}
+
+                {found.found && (
+                  <div className="unlock">
+                    <dl className="call-readout">
+                      <dt>Generation</dt>
+                      <dd>{found.generation ?? "—"}</dd>
+                      <dt>Starts at</dt>
+                      <dd>{found.offset_seconds} s</dd>
+                      <dt>Preamble</dt>
+                      <dd>
+                        {found.preamble_score == null
+                          ? "pilots"
+                          : found.preamble_score}
+                      </dd>
+                      <dt>Complete</dt>
+                      <dd>{found.truncated ? "Cut short" : "Yes"}</dd>
+                    </dl>
+
+                    <label className="switch">
+                      <input
+                        type="checkbox"
+                        checked={keyOn}
+                        onChange={(e) => setKeyOn(e.target.checked)}
+                      />
+                      <span className="switch-box" aria-hidden="true" />
+                      <span className="switch-text">Use numbers and PIN</span>
+                    </label>
+                    {keyOn && (
+                      <LockFields
+                        id="tel-rcv"
+                        caller={caller}
+                        receiver={receiver}
+                        pin={pin}
+                        onCaller={setCaller}
+                        onReceiver={setReceiver}
+                        onPin={setPin}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-primary rcv-go"
+                      onClick={open}
+                      disabled={opening}
+                    >
+                      {opening
+                        ? "Rebuilding…"
+                        : keyOn
+                          ? "Unlock and rebuild"
+                          : "Rebuild picture"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {error && (
+              <div className="alert alert-error call-alert">
+                <p>{error}</p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="rcv-right">
+          <Scope
+            selected={selected}
+            wave={wave}
+            audioSrc={audioSrc}
+            title={file?.name || "rx.wav"}
+            accent="open"
+            empty="Load a file and open it to inspect the waveform."
+          />
+          {rebuilt && <Rebuilt result={rebuilt} model={model} />}
+        </section>
+      </div>
     </>
   );
 }

@@ -32,6 +32,13 @@ python spectral/text/text_codec.py
 cd backend/spectral/tel
 python3 demo.py                     # image -> 16-FSK -> simulated GSM call -> image; writes tx.wav
 python3 test_pipeline.py            # Generation A over the simulated call, with the error
+./run_local_call.sh tx.wav rx.wav   # real SIP loopback between two pjsua instances; no account needed
+
+# The call package's own CLI (from backend/; `check-env` first, it reports what is missing)
+cd backend
+python -m voip.cli check-env
+python -m voip.cli prepare --image cat.jpg --gen B --grid 16 --levels 4
+python -m voip.cli simulate --run latest --lead 30 --decode
 
 # Frontend (Vite on :5173; proxies /api -> 127.0.0.1:8000)
 cd frontend
@@ -123,32 +130,54 @@ is in the git history, not the tree.
 
 ### The call page (`/api/tel`, the Call page)
 
-Nothing here places a **real** call. That was built once (`backend/voip/`: a
-pjsua dialler, a softphone-playback route, ffmpeg transcoding of Linphone's
-Matroska recordings, its own CLI and test suite) and removed on
-`remove_call` - too much setup for the coursework, and `channel_sim` already
-exercises the same codec. It is in the git history if it is ever wanted back.
+A call is either **simulated** offline or **placed for real** over SIP. The
+simulated one is the default and needs nothing installed beyond libgsm; the
+real one needs `pjsua` and a free SIP account, and degrades to an explanatory
+message when either is missing.
 
 - `app/api/tel_routes.py` + `app/services/tel_pipeline.py` serve the Call page
   under **`/api/tel`**, deliberately namespaced so the Send and Receive
-  contract is untouched: `info`, `stage`, `plan`, `send`, `call`, `receive`,
-  `audio/{id}`, `waveform/{id}`, `sent/{id}`, `recovered/{id}`. `call` runs
+  contract is untouched: `info`, `stage`, `plan`, `send`, `call`, `upload`,
+  `inspect`, `receive`, `enhance`, `dial`, `dial/status`, `dial/{call_id}`,
+  `play`, `play/devices`, `play/{play_id}`, `play/stop`, `audio/{id}`,
+  `waveform/{id}`, `sent/{id}`, `recovered/{id}`, `enhanced/{id}`. `call` runs
   `spectral/tel/channel_sim.py` (GSM 06.10, packet loss, a wandering level,
   noise and random leading silence) over the transmission.
-- `receive` rebuilds from either end, `rx.wav` or `tx.wav`, and scores it
-  against the activation actually transmitted. Neither generation is
-  self-describing on the wire, so the geometry comes from the send session via
-  `reference_id`; `tel_pipeline.locate()` finds the start (pilot alignment for
-  Gen A, `fsk_codec.find_preamble` for Gen B, which covers the simulator's
-  0.12-0.9 s of leading silence).
+- **The real call lives in `backend/voip/`.** `dial.py` drives `pjsua` against
+  a real SIP registrar — liblinphone's Python bindings are not on PyPI and are
+  not needed, since `sip.linphone.org` is an ordinary registrar and the phone's
+  Linphone app answers any SIP client. `audio_out.py` is the route that works
+  everywhere `pjsua` is not packaged (Windows): play the transmission into a
+  virtual audio cable that a softphone uses as its microphone. `call/session.py`
+  is the older liblinphone route, still reachable from `voip/cli.py`. Both
+  report *why* they cannot run rather than 404ing, so the page can say so.
+- Audio only comes back from a real call **as a recording made on the phone**
+  (Linphone's in-call Record button): pjsua can only record its own inbound
+  leg, which is the muted microphone. That recording arrives through `upload`
+  (`read_any_audio` -> `voip/audio_io.py` -> ffmpeg, since Linphone writes
+  Matroska `.mka` and iOS shares `.m4a`/`.caf`), then `inspect` matches it to
+  its send.
+- `receive` rebuilds from either end, `rx.wav`, `tx.wav` or an uploaded
+  recording, and scores it against the activation actually transmitted. Neither
+  generation is self-describing on the wire, so the geometry comes from the
+  send session via `reference_id`; `tel_pipeline.locate()` finds the start —
+  pilot alignment for Gen A, `voip/sync.py` for Gen B. **Use `voip.sync`, not
+  `fsk_codec.find_preamble`, here**: the latter only searches the first few
+  seconds, which covers the simulator's 0.12-0.9 s of silence but never a real
+  recording, where Record was pressed at some unknown point tens of seconds
+  before playback started. `voip.sync` scans the whole file and returns a
+  confidence score with the offset.
 - `app/main.py` mounts that router inside a `try/except ImportError`, so a
   machine missing the call dependencies still starts the rest of the app and
   `/api/tel/*` answers 503 with what to install. Keep that guard.
 - Frontend: `pages/Call.jsx` + `Call.css`, `api/telClient.js`, and a `/call`
-  route. `telClient.js` is kept apart from `client.js` on purpose. One flow:
-  picture, encode, simulated call, rebuilt.
-- `tests/test_tel_simulation.py` walks that whole path over HTTP for both
-  generations; the GSM tests skip without libgsm.
+  route. `telClient.js` is kept apart from `client.js` on purpose. Two tabs,
+  both kept mounted so switching never throws work away: **Send** (picture,
+  encode, simulated call or a real one, rebuilt) and **Receive** (drop a
+  recording, inspect it against the send, rebuild).
+- `tests/test_tel_simulation.py` walks the simulated path over HTTP for both
+  generations; the GSM tests skip without libgsm. The `tests/test_voip_*.py`
+  suite covers the call package, skipping cleanly without ffmpeg/pjsua/the SDK.
 
 ### Undoing the channel (`spectral/channel/inverse.py`)
 
@@ -221,10 +250,13 @@ It earns its place on damage with no inverse and gets in the way everywhere
 else, so it is **off by default** and the page reports all three stages. Those
 numbers move when the checkpoint is replaced; nothing else has to.
 
-torch is **optional** and not in `requirements.txt` proper. `status()` on each
-wrapper drives the button, `/api/tel/info` and `/api/channel/effects` carry it
-as `model`, and the endpoints answer 503 with what to install.
-`tests/test_upscaler.py` and `tests/test_restorer.py` skip without it.
+torch is **in `requirements.txt`** (pinned to 2.14.0), so both models are on by
+default. The graceful-degradation path is still intact and worth keeping: drop
+the line and everything except the two model buttons still runs. `status()` on
+each wrapper drives the button, `/api/tel/info` and `/api/channel/effects`
+carry it as `model`, and the endpoints answer 503 with what to install.
+`tests/test_upscaler.py` and `tests/test_restorer.py` skip without it, which is
+why the suite reports 3 skips with torch present and 22 without.
 
 ### The experiments bench (`/experiments`, `/api/channel`)
 

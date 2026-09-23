@@ -7,6 +7,11 @@ CORS_ORIGINS = [
 
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
 
+# Call recordings are bigger than pictures. A phone records the whole call, not
+# just the transmission, and does it at its own rate in its own container, so
+# the 12 MB picture limit would reject a perfectly good recording.
+MAX_AUDIO_UPLOAD_BYTES = 32 * 1024 * 1024
+
 MAX_TEXT_CHARS = 2000
 SESSION_TTL_SECONDS = 60 * 60
 MAX_SESSIONS = 200

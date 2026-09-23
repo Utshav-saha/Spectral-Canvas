@@ -146,8 +146,18 @@ async def inspect_endpoint(file: UploadFile = File(...)):
     carried = "" if track == DEFAULT_TRACK else f"It came in over a phone call. "
 
     if metadata is None:
-        message = ("This file has no Spectral Canvas header, so there is nothing "
-                   "to rebuild from it. You can still inspect the waveform.")
+        # A recording of a real call is the common case here, and it lands on
+        # this page because it is the one called "Receive". It can never carry
+        # a header: what a phone records is sound off a voice line, not the WAV
+        # this server wrote. Its geometry lives in the Call page's send
+        # session, so that is where it has to be rebuilt. Saying only "no
+        # header" sends people away thinking the recording is broken.
+        message = ("This file has no Spectral Canvas header. If it is a "
+                   "recording of a real phone call, rebuild it on the Call "
+                   "page's Receive tab instead - a recording carries no "
+                   "header, so it has to be matched to the transmission it "
+                   "came from. Otherwise there is nothing to rebuild here, "
+                   "though you can still inspect the waveform.")
     elif metadata.get("kind") == "text":
         message = "This is a text transmission. Decode it whenever you are ready."
     elif metadata.get("security_enabled"):

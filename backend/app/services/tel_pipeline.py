@@ -21,10 +21,12 @@ import io
 import os
 import shutil
 import sys
+from math import gcd
 
 import numpy as np
 from PIL import Image
 from scipy.io import wavfile
+from scipy.signal import resample_poly
 
 _TEL = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "spectral", "tel")
@@ -238,37 +240,262 @@ def run_call(audio, loss, noise_db, seed):
     }
 
 
-def locate(audio, metadata):
-    """Where the transmission starts in the received audio.
+def read_any_wav(raw_bytes):
+    """Any PCM or float WAV -> mono float64 at 8 kHz, plus what it was before."""
+    try:
+        rate, data = wavfile.read(io.BytesIO(raw_bytes))
+    except Exception:
+        raise ValueError("That does not look like a WAV file.")
 
-    The simulated call puts 0.12-0.9 s of silence in front, as a real
-    recording would, so the decoder has to find the start before it reads.
-    Neither generation is self-describing on the wire; the geometry comes
-    from the send's metadata.
+    channels = 1 if data.ndim == 1 else data.shape[1]
+    if data.dtype == np.int16:
+        audio = data / 32768.0
+    elif data.dtype == np.int32:
+        audio = data / 2147483648.0
+    elif data.dtype == np.uint8:
+        audio = (data.astype(np.float64) - 128.0) / 128.0
+    else:
+        audio = data.astype(np.float64)
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+    audio = np.asarray(audio, dtype=np.float64)
+    if len(audio) == 0:
+        raise ValueError("That WAV file has no audio in it.")
+
+    if rate != SAMPLE_RATE:
+        g = gcd(int(rate), SAMPLE_RATE)
+        audio = resample_poly(audio, SAMPLE_RATE // g, int(rate) // g)
+
+    return audio, {"sample_rate_in": int(rate), "channels": channels,
+                   "resampled": rate != SAMPLE_RATE}
+
+
+def read_any_audio(raw_bytes, filename=None):
+    """Any recording -> mono float64 at 8 kHz.
+
+    WAV still goes through read_any_wav, byte for byte as before. Anything else
+    goes through ffmpeg, because Linphone's in-call recorder writes Matroska
+    (.mka) and an iOS share can arrive as .m4a or .caf -- none of which scipy
+    will open, and all of which are what a real call actually produces.
+
+    Imported inside the function so the app still starts if voip/ is absent.
+    """
+    if not raw_bytes:
+        raise ValueError("Choose an audio file to inspect.")
+
+    try:
+        return read_any_wav(raw_bytes)
+    except ValueError:
+        pass
+
+    try:
+        from voip.audio_io import load_audio_bytes
+    except ImportError:
+        raise ValueError(
+            "That does not look like a WAV file, and the converter for other "
+            "formats is unavailable on this server."
+        )
+
+    try:
+        audio, meta = load_audio_bytes(raw_bytes, filename)
+    except Exception as exc:
+        raise ValueError(str(exc))
+
+    return audio, {"sample_rate_in": int(meta.get("sample_rate_in", SAMPLE_RATE)),
+                   "channels": int(meta.get("channels", 1)),
+                   "resampled": bool(meta.get("resampled", False)),
+                   "container": meta.get("container"),
+                   "codec": meta.get("codec")}
+
+
+def locate(audio, metadata):
+    """Where the transmission starts in a recording, and how sure we are.
+
+    Neither generation can be read out of a bare recording on its own: Gen A's
+    grid geometry and Gen B's symbol count live in the send's metadata, which
+    a recording of a real call obviously does not carry. So the page keeps the
+    send session and hands its metadata back here. What this adds is the
+    offset, because a phone recording starts whenever Record was pressed.
     """
     if metadata.get("generation") == "A":
         import tel_decoder
         start = int(tel_decoder.pilot_align(audio, metadata["tel"]))
         frames = metadata["columns"] * metadata["channels"] + metadata["tel"]["preamble_frames"]
         end = start + frames * metadata["tel"]["frame_samples"]
-        return {"offset": start, "truncated": bool(end > len(audio))}
+        return {"offset": start, "score": None, "truncated": bool(end > len(audio))}
 
+    from voip import sync as voip_sync
     import fsk_codec as fsk
-    start = int(fsk.find_preamble(audio))
+    located = voip_sync.find_preamble(audio)
     frames = len(fsk.PREAMBLE) + metadata["fsk"]["n_symbols"]
-    end = start + frames * fsk.SYMBOL_SAMPLES
-    return {"offset": start, "truncated": bool(end > len(audio))}
+    end = located.offset + frames * fsk.SYMBOL_SAMPLES
+    return {"offset": int(located.offset), "score": round(float(located.score), 4),
+            "found": bool(located.found), "truncated": bool(end > len(audio))}
+
+
+# Whether the sixteen tones survived the call. Measured on real recordings:
+#
+#                             bin imbalance   median margin   clipped   rebuilt
+#   destroyed real call            57x             48          4.2%       79%
+#   good loopback                  11x            225          0.0%      100%
+#   good clean 24x24                6x            340          0.0%      100%
+#
+# Imbalance alone is NOT enough, and getting that wrong told a user their
+# working recording was unrecoverable: a mostly-white picture sends the lowest
+# tone over and over, so one bin legitimately carries tens of times the median.
+# The margin is what does not depend on the picture - it asks how decisively
+# each symbol beat its runner-up, whichever tone was sent. Both have to look
+# bad before this says anything, because a false alarm here sends someone off
+# to re-record a recording that was fine.
+CLIPPED_FRACTION = 0.02
+BIN_IMBALANCE = 25.0
+WEAK_MEDIAN_MARGIN = 100.0
+
+
+def signal_health(audio, metadata, offset=0):
+    """Whether the recording can carry a picture at all.
+
+    Sync succeeding says only that the preamble was found; it says nothing
+    about whether the tones survived. Without this the page rebuilds a
+    confident-looking wrong picture and the obvious suspect is the PIN.
+    """
+    report = {"clipped_fraction": float(np.mean(np.abs(audio) > 0.99)),
+              "bin_imbalance": None, "median_margin": None,
+              "dominant_tone_share": None, "warning": None}
+
+    if metadata.get("generation") == "B":
+        try:
+            import fsk_codec as fsk
+            from voip.dsp import symbol_decisions, symbol_magnitudes
+
+            start = int(offset) + len(fsk.PREAMBLE) * fsk.SYMBOL_SAMPLES
+            count = min(int((metadata.get("fsk") or {}).get("n_symbols") or 0),
+                        max(0, (len(audio) - start) // fsk.SYMBOL_SAMPLES))
+            if count > 32:
+                mags = symbol_magnitudes(audio, start, count)
+                per_bin = mags.mean(axis=0)
+                report["bin_imbalance"] = float(
+                    per_bin.max() / max(float(np.median(per_bin)), 1e-12))
+                symbols, margin = symbol_decisions(mags)
+                report["median_margin"] = float(np.median(margin))
+                report["dominant_tone_share"] = float(
+                    np.bincount(symbols, minlength=16).max() / count)
+        except Exception:
+            pass
+
+    imbalance = report["bin_imbalance"]
+    margin = report["median_margin"]
+    clipped = report["clipped_fraction"]
+
+    if (imbalance is not None and margin is not None
+            and imbalance > BIN_IMBALANCE and margin < WEAK_MEDIAN_MARGIN):
+        report["warning"] = (
+            f"The symbols in this recording are only winning by {margin:.0f}x, "
+            "where a clean one wins by 200x or more, so a share of them will be "
+            "read wrong however well it syncs and whatever the PIN. Measured on "
+            "recordings like this: about one symbol in ten. Turn the phone's "
+            "call volume down - both bad recordings so far came back pinned at "
+            "full scale - and check that echo cancellation and noise suppression "
+            "really are off and PCMU is the only codec enabled."
+        )
+    elif clipped > CLIPPED_FRACTION:
+        report["warning"] = (
+            f"{clipped * 100:.1f}% of this recording is clipped at full scale. Turn "
+            "the phone's call volume down and record again; a saturated recording "
+            "loses which tone was playing."
+        )
+    return report
+
+
+def run_inspect(audio, metadata=None):
+    stats = wf.global_stats(audio, SAMPLE_RATE)
+    if metadata is None:
+        return {
+            "found": False,
+            "message": ("Loaded. Choose which transmission this is a recording "
+                        "of, below, so its settings can be used to rebuild it."),
+            "stats": stats,
+        }
+
+    located = locate(audio, metadata)
+    health = signal_health(audio, metadata, located["offset"])
+    if located.get("found") is False:
+        message = ("No transmission preamble was found in this audio. Either it "
+                   "is not a recording of this call, or Record was started too "
+                   "late.")
+    elif located["truncated"]:
+        message = ("Found, but the recording stops before the transmission ends. "
+                   "The tail of the picture will be missing.")
+    else:
+        message = "Found. Rebuild it whenever you are ready."
+
+    # A degraded recording syncs perfectly well; say so before it is rebuilt
+    # into a confident-looking wrong picture.
+    if health["warning"]:
+        message = f"{message} {health['warning']}"
+
+    return {
+        "found": located.get("found", True),
+        # whether the *transmission* was locked, straight from the send it was
+        # matched against. A recording carries no such flag of its own, and the
+        # page used to read a key no endpoint has ever returned, so every
+        # recording came up "Locked".
+        "locked": bool(metadata.get("security_enabled", False)),
+        "clipped_fraction": round(health["clipped_fraction"], 4),
+        "dominant_tone_share": (None if health["dominant_tone_share"] is None
+                                else round(health["dominant_tone_share"], 3)),
+        "bin_imbalance": (None if health["bin_imbalance"] is None
+                          else round(health["bin_imbalance"], 1)),
+        "median_margin": (None if health["median_margin"] is None
+                          else round(health["median_margin"], 1)),
+        "signal_warning": health["warning"],
+        "generation": metadata.get("generation"),
+        "offset_seconds": round(located["offset"] / SAMPLE_RATE, 3),
+        "preamble_score": located["score"],
+        "truncated": located["truncated"],
+        "message": message,
+        "stats": stats,
+    }
+
+
+def _retimed(trimmed, metadata):
+    """Put a real recording back on a uniform symbol grid before decoding.
+
+    A phone does not keep the laptop's timebase - measured at 87 ms of wander
+    over a 60 s call, more than two symbols - and the modem locks its grid once
+    from the preamble. Generation A is left alone: its pilot tones realign it
+    per frame already.
+
+    Never worse than not trying: anything unexpected returns the audio
+    untouched and the decoder does exactly what it did before.
+    """
+    if metadata.get("generation") == "A":
+        return trimmed
+    info = metadata.get("fsk") or {}
+    if not info.get("n_symbols"):
+        return trimmed
+    try:
+        import fsk_codec as fsk
+        from voip import sync as voip_sync
+
+        total = len(fsk.PREAMBLE) + int(info["n_symbols"])
+        if info.get("has_header"):
+            total += fsk.HEADER_SYMBOLS
+        return voip_sync.retime(trimmed, 0, total)
+    except Exception:
+        return trimmed
 
 
 def run_receive(audio, metadata, locked=False, caller=None, receiver=None,
                 pin=None, sent_array=None):
     if metadata is None:
-        raise ValueError("That transmission has expired. Send it again.")
+        raise ValueError("Choose which transmission this audio is a recording of.")
     if locked:
         validate_credentials(caller, receiver, pin)
 
     located = locate(audio, metadata)
     trimmed = audio[located["offset"]:] if located["offset"] else audio
+    trimmed = _retimed(trimmed, metadata)
 
     try:
         image_array = call_track.decode(

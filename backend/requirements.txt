@@ -6,11 +6,14 @@ scipy==1.15.0
 pillow==11.1.0
 pydantic==2.10.4
 
-# Optional: only the Call page's "Enhance with the model" button needs this.
-# Everything else - encoding, decoding, the channel bench, the LTI inverse -
-# runs without it, and the button says so when it is missing.
+# The two learned models: the Call page's "Enhance with the model" button and
+# the Experiments bench's "Then run the model". The checkpoints they load live
+# in tools/. Everything else - encoding, decoding, the channel bench, the LTI
+# inverse - still runs without this, and both controls explain themselves when
+# it is missing, so removing this line degrades the app rather than breaking it.
+# On Linux a CPU-only build is a much smaller download:
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
-# torch
+torch==2.14.0
 
 # tests only
 pytest==9.1.1
