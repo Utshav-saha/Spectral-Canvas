@@ -159,15 +159,12 @@ def run_encode_call(params, upload_bytes=None):
                          "number of gray levels has to be a power of two: "
                          "2, 4, 8 or 16.")
 
-    # a call runs in real time, so quote the length before spending it
+    # This track is Generation B, the exact one, and the only reason to choose
+    # it is when correctness matters more than the wait - so there is no cap on
+    # the airtime. The length is quoted back instead, and `long` past
+    # CALL_MAX_SECONDS lets the page caution without refusing.
     seconds = call_track.budget_seconds(params.target_width, params.target_height,
                                         gray_levels=levels, mode=params.mode)
-    if seconds > CALL_MAX_SECONDS:
-        raise ValueError(
-            f"That would take {seconds / 60:.1f} minutes of call time, and the "
-            f"limit is {CALL_MAX_SECONDS // 60} minutes. Use a smaller grid, "
-            f"fewer gray levels, or send it in grayscale."
-        )
 
     image = build_source_image(params, upload_bytes)
 
@@ -187,6 +184,8 @@ def run_encode_call(params, upload_bytes=None):
         "wav_bytes": write_wav_bytes(metadata["sample_rate"], audio, metadata),
         "preview_png": activation_to_png_bytes(activation, levels),
         "stats": wf.global_stats(audio, metadata["sample_rate"]),
+        "call_seconds": round(seconds, 2),
+        "long": bool(seconds > CALL_MAX_SECONDS),
     }
 
 

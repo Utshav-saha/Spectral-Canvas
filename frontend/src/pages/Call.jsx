@@ -887,14 +887,22 @@ function CallSend({ info, generations }) {
               type="button"
               className="btn btn-primary sim-send"
               onClick={encode}
-              disabled={!staged || sending || plan?.too_large}
+              disabled={!staged || sending}
             >
               {sending ? "Encoding…" : "Encode for a call"}
             </button>
             {!staged && <p className="field-note">Add a picture to send.</p>}
-            {plan?.too_large && (
+            {/* Generation B has no airtime cap - exactness is the whole reason
+                to pick it - so a long one is a caution, not a refusal. The
+                simulation itself is quick: it processes the audio offline
+                rather than playing it. */}
+            {plan?.long && (
               <p className="field-note">
-                Too large for one call. Lower the size or quality.
+                That is {(plan.seconds / 60).toFixed(1)} minutes of call time, and
+                a {((plan.seconds * 16000) / 1e6).toFixed(0)}&nbsp;MB file. Generation{" "}
+                {plan.generation} has no limit, and the simulated call still runs
+                in about a second &mdash; the minutes are what a real call would
+                have cost.
               </p>
             )}
             {error && (

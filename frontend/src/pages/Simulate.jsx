@@ -721,6 +721,17 @@ export default function Simulate() {
                     Open the file to inspect its waveform.
                   </p>
                 )}
+                {/* The call track has no airtime cap - it is the exact
+                    generation, and waiting is the price of that - so a long
+                    one is worth saying in minutes rather than 3440.96s. */}
+                {result.long && (
+                  <p className="field-note">
+                    That is {(result.call_seconds / 60).toFixed(1)} minutes of
+                    call time. There is no limit on it, but a file this long
+                    cannot be uploaded back to this server &mdash; rebuild it
+                    from this session instead.
+                  </p>
+                )}
 
                 {result.kind === "text" ? (
                   <figure className="sent-preview">

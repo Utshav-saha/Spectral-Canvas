@@ -203,3 +203,24 @@
   .exp-lti tr { border-top: 1px solid var(--line-soft); padding: 10px 0; }
   .exp-lti td { border: 0; padding: 2px 0; }
 }
+
+.exp-stages {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+.exp-stages th {
+  text-align: left;
+  padding: 0 12px 8px 0;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
+.exp-stages td {
+  padding: 8px 12px 8px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.exp-stages tr.is-best td { color: var(--open); }
+.exp-stage-note { color: var(--ink-3); }

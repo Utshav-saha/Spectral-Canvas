@@ -77,3 +77,42 @@ def test_the_real_call_endpoints_are_gone(client):
     for path in ("/api/tel/dial/status", "/api/tel/play/devices"):
         assert client.get(path).status_code in (404, 405)
     assert client.post("/api/tel/upload").status_code in (404, 405)
+
+
+# --------------------------------------------------------------------------
+# Airtime limits
+# --------------------------------------------------------------------------
+
+def test_generation_b_has_no_airtime_cap(client):
+    """B is the exact one, and the only reason to choose it is when
+    correctness matters more than the wait. Capping it would refuse the whole
+    point of it, so the biggest thing it can carry has to plan cleanly."""
+    from app.services import tel_pipeline as tel
+
+    plan = client.get("/api/tel/plan",
+                      params={"generation": "B", "size": 64, "levels": 16,
+                              "colour": True}).json()
+
+    assert plan["seconds"] > tel.MAX_SECONDS      # well past A's limit
+    assert plan["max_seconds"] is None            # and not refused
+    assert plan["long"] is True                   # but the page is warned
+
+
+def test_generation_a_keeps_its_cap():
+    """A is the lossy one: a picture nobody would sit through is still worth
+    refusing."""
+    from app.services import tel_pipeline as tel
+
+    assert tel.GENERATIONS["A"]["max_seconds"] == tel.MAX_SECONDS
+    assert tel.GENERATIONS["B"]["max_seconds"] is None
+
+
+@pytest.mark.parametrize("size", [48, 64])
+def test_the_bigger_generation_b_grids_round_trip(client, image_id, size):
+    """64x64 is new, and the modem sends no length header on this path, so the
+    only thing that could break is the geometry coming back from the session."""
+    tx = _send(client, image_id, "B", size, 4)
+    rebuilt = _receive(client, tx["session_id"], tx["session_id"])
+
+    assert (rebuilt["rows"], rebuilt["columns"]) == (size, size)
+    assert rebuilt["match"]["identical"] is True

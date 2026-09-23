@@ -92,7 +92,10 @@ TRACKS = {
 
 DEFAULT_TRACK = "wav"
 
-# A call runs in real time, so refuse one nobody would sit through. 5 minutes
-# also keeps the 8 kHz int16 WAV under MAX_UPLOAD_BYTES, so the file the
-# receiver uploads is always one this server would have produced.
+# Not a limit any more: the call track is Generation B, the exact one, and the
+# only reason to choose it is when correctness matters more than the wait.
+# Past this many seconds the encode response sets `long` so the page can say
+# so - it no longer refuses. Worth knowing: 5 minutes is also where the 8 kHz
+# int16 WAV passes MAX_UPLOAD_BYTES, so a longer file cannot be uploaded back
+# to this server even though it can be produced.
 CALL_MAX_SECONDS = 300

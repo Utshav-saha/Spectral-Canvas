@@ -81,6 +81,10 @@ async def encode_endpoint(
         "duration": metadata["duration_seconds"],
         "audio_url": f"/api/audio/{session_id}",
         "preview_url": None if is_text else f"/api/preview/{session_id}",
+        # Track 2 only: how long a real call would have taken, and whether
+        # that is long enough to be worth saying out loud. No longer a limit.
+        "call_seconds": result.get("call_seconds"),
+        "long": bool(result.get("long")),
     }
 
 
@@ -219,8 +223,9 @@ def decode_endpoint(body: dict):
 @router.get("/channel/effects")
 def channel_effects():
     """The catalogue the experiments page builds itself from, so the UI and
-    the validator cannot drift apart."""
-    return channel_lab.catalogue()
+    the validator cannot drift apart. `model` says whether the learned
+    restoration step can run, so the page knows whether to offer it."""
+    return {**channel_lab.catalogue(), "model": channel_lab.model_status()}
 
 
 @router.post("/channel")
@@ -240,8 +245,10 @@ def channel_endpoint(body: dict):
             caller=body.get("caller"), receiver=body.get("receiver"),
             pin=body.get("pin"),
             # "undo": run the LTI inverse over the damaged audio as well, so
-            # the page can show what division by H(f) does and does not fix
-            undo=bool(body.get("undo")), epsilon=body.get("epsilon"))
+            # the page can show what division by H(f) does and does not fix.
+            # "restore": then hand what is left to the learned model.
+            undo=bool(body.get("undo")), epsilon=body.get("epsilon"),
+            restore=bool(body.get("restore")))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:
@@ -292,6 +299,25 @@ def channel_endpoint(body: dict):
             "skipped": fixed["skipped"],
         }
 
+    restored = None
+    if result.get("restored"):
+        model = result["restored"]
+        model_id = session_store.create({
+            "kind": "channel",
+            "audio": result.get("undone", result)["audio"],
+            "metadata": session["metadata"],
+            "sample_rate": result["sample_rate"],
+            "recovered_png": model["png"],
+        })
+        restored = {
+            "run_id": model_id,
+            "image_url": f"/api/recovered/{model_id}",
+            "metrics": model["metrics"],
+            "row_error": channel_lab.row_profile(baseline, model["image_array"]),
+            # whether the model was handed the inverted picture or the raw one
+            "after": model["after"],
+        }
+
     return {
         "run_id": run_id,
         "session_id": body["session_id"],
@@ -307,6 +333,7 @@ def channel_endpoint(body: dict):
         "stats": result["stats"],
         "clean_stats": result["clean_stats"],
         "undone": undone,
+        "restored": restored,
         "rows": session["metadata"]["rows"],
         "columns": session["metadata"]["columns"],
         "mode": session["metadata"].get("mode", "L"),

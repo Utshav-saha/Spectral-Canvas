@@ -42,6 +42,14 @@ SAMPLE_RATE = call_track.SAMPLE_RATE
 
 # What the Call page offers. Gen A spends one frame per column whatever the
 # content, so it buys resolution cheaply; Gen B is serial and does not.
+# A call runs in real time, so Generation A refuses one nobody would sit
+# through. Generation B has no limit: it is the exact one, and the only reason
+# to choose it is when correctness matters more than the wait - capping it
+# would be refusing the whole point of it. The page warns past this many
+# seconds instead of refusing.
+MAX_SECONDS = 300
+LONG_SECONDS = 300
+
 GENERATIONS = {
     "A": {
         "id": "A",
@@ -58,6 +66,8 @@ GENERATIONS = {
         "levels": [2, 4, 8, 16],
         "default_levels": 16,
         "lossy": True,
+        # a call in real time; a lossy picture is not worth sitting through
+        "max_seconds": MAX_SECONDS,
     },
     "B": {
         "id": "B",
@@ -66,18 +76,20 @@ GENERATIONS = {
         "summary": ("One tone at a time out of sixteen. The decoder takes an "
                     "argmax and never compares loudness, so a codec that "
                     "destroys amplitude cannot touch it - the picture arrives "
-                    "exact. The cost is airtime, which caps the grid at about "
-                    "32 x 32."),
-        "sizes": [16, 24, 32],
+                    "exact. The cost is airtime: 32 x 32 at 4 levels is about "
+                    "36 s, and 64 x 64 is four times that, so the bigger "
+                    "grids are only worth it when exactness matters more than "
+                    "the wait."),
+        "sizes": [16, 24, 32, 48, 64],
         "default_size": 32,
         "levels": [2, 4, 16],
         "default_levels": 4,
         "lossy": False,
+        # no cap: exactness is the reason to pick this one
+        "max_seconds": None,
     },
 }
 
-# A call runs in real time. Refuse one nobody would sit through.
-MAX_SECONDS = 300
 
 
 def info():
@@ -106,11 +118,14 @@ def _check(generation, size, levels, colour):
                          f"{', '.join(str(n) for n in spec['levels'])} gray levels.")
     mode = "RGB" if colour else "L"
     seconds = call_track.budget_seconds(size, size, levels, mode, generation)
-    if seconds > MAX_SECONDS:
+
+    limit = spec.get("max_seconds")
+    if limit is not None and seconds > limit:
         raise ValueError(
             f"That would take {seconds / 60:.1f} minutes of call time, and the "
-            f"limit is {MAX_SECONDS // 60} minutes. Use a smaller grid, fewer "
-            f"gray levels, or send it in grayscale."
+            f"limit for Generation {generation} is {limit // 60} minutes. Use a "
+            f"smaller grid, fewer gray levels, or send it in grayscale. "
+            f"Generation B has no limit, if you want to wait it out."
         )
     return mode, seconds
 
@@ -141,6 +156,9 @@ def plan(generation, size, levels, colour):
         "seconds": round(seconds, 2),
         "lossy": spec["lossy"],
         "pixels": size * size * channels,
+        "max_seconds": spec.get("max_seconds"),
+        # no cap on B, but past five minutes the page should say so plainly
+        "long": bool(seconds > LONG_SECONDS),
     }
 
 

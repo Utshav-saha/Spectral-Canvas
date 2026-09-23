@@ -14,7 +14,7 @@ import './Experiments.css'
 
 const STAGES = ['Picture', 'Chain', 'Run', 'Measured']
 
-const FALLBACK = { effects: [], presets: [], max_effects: 6, inversion: [] }
+const FALLBACK = { effects: [], presets: [], max_effects: 6, inversion: [], model: null }
 
 function RowError({ values, rows }) {
   /* Mean absolute pixel error per image row, drawn top row first so it lines
@@ -43,42 +43,77 @@ function RowError({ values, rows }) {
   )
 }
 
-/* What the LTI inverse did, in numbers. The interesting column is the middle
-   one: an effect that has an inverse drops a lot, one that does not barely
-   moves, and that gap is the argument the page is making. */
-function Inverse({ result }) {
-  const u = result.undone
-  const before = result.metrics?.mae
-  const after = u.metrics?.mae
-  const gained = before != null && after != null
-    ? Math.max(0, Math.round((1 - after / before) * 100)) : null
+/* The three columns RESTORATION_PLAN Phase 5 asks for: damaged, then what the
+   analytic inverse got back, then what the model added on top. Never averaged
+   into one number, because the whole point is that they differ per effect -
+   the inverse wins on LTI damage, the model only earns its place where there
+   is no inverse at all. */
+function Stages({ result }) {
+  const damaged = result.metrics?.mae
+  const inverted = result.undone?.metrics?.mae
+  const restored = result.restored?.metrics?.mae
+
+  const best = [damaged, inverted, restored].filter((v) => v != null)
+  const lowest = best.length ? Math.min(...best) : null
+  const drop = (v) => (v == null || damaged == null || !damaged) ? null
+    : Math.round((1 - v / damaged) * 100)
+
+  const columns = [
+    { key: 'damaged', label: 'Damaged', value: damaged, note: 'straight off the channel' },
+    { key: 'inverted', label: '+ LTI inverse', value: inverted, note: result.undone ? `eps ${result.undone.epsilon}` : null },
+    { key: 'restored', label: '+ model', value: restored, note: result.restored ? `run on the ${result.restored.after === 'inverse' ? 'inverted' : 'damaged'} picture` : null },
+  ].filter((c) => c.value != null)
 
   return (
     <div className="exp-inverse">
-      <dl className="call-readout">
-        <dt>MAE damaged</dt><dd>{before ?? '—'}</dd>
-        <dt>MAE after the inverse</dt><dd>{after ?? '—'}</dd>
-        <dt>Error removed</dt><dd>{gained == null ? '—' : `${gained}%`}</dd>
-        <dt>Regularisation</dt><dd>eps {u.epsilon}</dd>
-      </dl>
-      <ul className="exp-verdicts">
-        {u.undone.map((id) => (
-          <li key={id}><span className="led is-open" aria-hidden="true" />
-            <b>{id}</b> undone &mdash; it was LTI, so dividing by H(f) brought it back
-          </li>
-        ))}
-        {u.attempted.map((id) => (
-          <li key={id}><span className="led is-signal" aria-hidden="true" />
-            <b>{id}</b> partly undone &mdash; the shoulders came back, the rows
-            inside the stop band did not
-          </li>
-        ))}
-        {u.skipped.map((id) => (
-          <li key={id}><span className="led is-locked" aria-hidden="true" />
-            <b>{id}</b> left alone &mdash; it has no inverse, so nothing was faked
-          </li>
-        ))}
-      </ul>
+      <table className="exp-stages">
+        <thead>
+          <tr>
+            <th>Stage</th><th>MAE</th><th>Error removed</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {columns.map((c) => (
+            <tr key={c.key} className={c.value === lowest ? 'is-best' : ''}>
+              <td>{c.label}</td>
+              <td className="mono">{c.value}</td>
+              <td className="mono">{c.key === 'damaged' ? '—' : `${drop(c.value)}%`}</td>
+              <td className="exp-stage-note">{c.note}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {result.undone && (
+        <ul className="exp-verdicts">
+          {result.undone.undone.map((id) => (
+            <li key={id}><span className="led is-open" aria-hidden="true" />
+              <b>{id}</b> undone &mdash; it was LTI, so dividing by H(f) brought it back
+            </li>
+          ))}
+          {result.undone.attempted.map((id) => (
+            <li key={id}><span className="led is-signal" aria-hidden="true" />
+              <b>{id}</b> partly undone &mdash; the shoulders came back, the rows
+              inside the stop band did not
+            </li>
+          ))}
+          {result.undone.skipped.map((id) => (
+            <li key={id}><span className="led is-locked" aria-hidden="true" />
+              <b>{id}</b> has no inverse &mdash; nothing was faked
+              {result.restored ? ', so this is what the model was asked to guess' : ''}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {result.restored && restored != null && inverted != null && restored > inverted && (
+        <p className="field-note">
+          The model made this one worse. That is the expected answer when the
+          inverse already did the job: it was trained on damage that has no
+          inverse, and asking it to polish an already-correct picture only adds
+          its own guesswork.
+        </p>
+      )}
     </div>
   )
 }
@@ -111,12 +146,13 @@ function InverseTable({ rows }) {
           </tbody>
         </table>
         <p className="field-note">
-          The &ldquo;no&rdquo; rows are exactly the jobs a learned model would have
-          to do: clipping is nonlinear, a stop-band annihilates rows rather than
+          The &ldquo;no&rdquo; rows are exactly the jobs the learned model is for:
+          clipping is nonlinear, a stop-band annihilates rows rather than
           attenuating them, aliasing folds two rows into one sum, and noise was
-          added rather than convolved. This project ships a model for Track 2
-          only &mdash; upscaling and dequantising on the Call page &mdash; so on
-          this page the red rows stay broken, honestly.
+          added rather than convolved. Tick <b>Then run the model</b> to hand it
+          those, and read the three stages side by side &mdash; it earns its place
+          on clipping and heavy damage, and gets in the way where the inverse
+          already worked.
         </p>
       </div>
     </div>
@@ -145,6 +181,10 @@ export default function Experiments() {
   /* Run the LTI inverse over the damaged audio as well. On by default: the
      whole point of the page is which effects that division can undo. */
   const [undo, setUndo] = useState(true)
+  /* And then hand what the inverse could not fix to the learned model. Off by
+     default: it helps heavy, non-invertible damage and gets in the way of
+     everything else, which the three columns below make visible. */
+  const [restore, setRestore] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const dropRef = useRef(null)
@@ -193,7 +233,7 @@ export default function Experiments() {
   const run = async () => {
     setError(''); setRunning(true)
     try {
-      setResult(await api.channel({ session_id: tx.session_id, effects: chain, undo }))
+      setResult(await api.channel({ session_id: tx.session_id, effects: chain, undo, restore }))
     } catch (e) {
       setError(e.message)
     } finally {
@@ -422,6 +462,18 @@ export default function Experiments() {
                 Divides the spectrum back by H(f), the LTI inverse. Effects with
                 no inverse are left alone rather than faked.
               </p>
+
+              <label className="switch">
+                <input type="checkbox" checked={restore} disabled={!cat.model?.ready}
+                       onChange={(e) => setRestore(e.target.checked)} />
+                <span className="switch-box" aria-hidden="true" />
+                <span className="switch-text">Then run the model</span>
+              </label>
+              <p className="field-note">
+                {cat.model?.ready
+                  ? 'The learned step, on whatever the inverse could not fix: clipping, killed rows, aliasing. All three results are shown, never merged.'
+                  : (cat.model?.message || 'The restoration model is unavailable on this server.')}
+              </p>
               <button type="button" className="btn btn-primary sim-send"
                       onClick={run} disabled={!tx || !chain.length || running}>
                 {running ? 'Running…' : 'Run the channel'}
@@ -461,10 +513,17 @@ export default function Experiments() {
                 </figure>
               )}
 
+              {result.restored && (
+                <figure className="exp-fig">
+                  <img src={result.restored.image_url} alt="After the model" />
+                  <figcaption>After the model</figcaption>
+                </figure>
+              )}
+
               <RowError values={result.row_error} rows={result.rows} />
             </div>
 
-            {result.undone && <Inverse result={result} />}
+            {(result.undone || result.restored) && <Stages result={result} />}
 
             <div className="exp-foot">
               <dl className="call-readout">
@@ -492,9 +551,10 @@ export default function Experiments() {
               and dividing that scale back out restores the row. The red dots
               mark the ones it cannot &mdash; a stop-band destroys rows rather
               than attenuating them, clipping is nonlinear, and aliasing folds
-              two rows into one. Those three are what a learned step would have
-              to guess, and guessed pixels look exactly as convincing as
-              received ones.
+              two rows into one. Those three are what the model is asked to
+              guess, and a guessed pixel looks exactly as convincing as a
+              received one &mdash; which is why the stages stay in separate
+              columns rather than being folded into a single number.
             </p>
           </section>
         )}

@@ -88,9 +88,19 @@ file with no `track` field predates the split and is Track 1.
   present, which is the only thing a GSM codec preserves. Locking is the
   permutation half only: `scramble`/`unscramble` run upstream of the modem, and
   the additive noise mask is dropped because cancelling it needs sample-exact
-  alignment an RTP path cannot give. `CALL_MAX_SECONDS` (5 min) caps how much
-  call time one request may ask for, which also keeps the 8 kHz WAV under the
-  upload limit.
+  alignment an RTP path cannot give. The airtime cap is **per generation**,
+  in `GENERATIONS[...]["max_seconds"]`: A is capped at `MAX_SECONDS` (5 min),
+  because a lossy picture is not worth sitting through, and **B has no cap at
+  all** - exactness is the only reason to choose it. `plan()` returns `long`
+  past 5 minutes so the page can caution rather than refuse. The biggest B
+  will carry is 64x64 RGB at 16 levels: 14.3 min of wire time, a 13.8 MB WAV,
+  and it still runs in under a second because the "call" is offline. There is
+  no modem ceiling underneath this - `image_fsk.encode_image` sends no length
+  header, so the geometry comes from the session. The Send page's Track 2
+  (`pipeline.run_encode_call`) is uncapped for the same reason;
+  `CALL_MAX_SECONDS` is now only the threshold at which the encode response
+  sets `long`, and past it the 8 kHz WAV is over `MAX_UPLOAD_BYTES`, so it
+  cannot be uploaded back - rebuild from the session instead.
 - **Over a call**, both generations are offered on the Call page. This was
   once cut as "Track 3" and brought back deliberately: Generation A's loss is
   the restoration model's training target, so the damage is the deliverable.
@@ -104,8 +114,10 @@ A *track* is a delivery path; a *generation* is the encoding it carries.
 | ~~Gen C~~ | WebP + Reed-Solomon | bytes | exact or nothing | **cut** |
 
 Generation A over a call is lossy *on purpose*: the damage is graded and
-reproducible, which is what makes it a training target. Generation B is exact
-but caps out near 32x32, which is what the upscaler is for. Generation C was
+reproducible, which is what makes it a training target. Generation B is exact,
+and goes up to 64x64 at the cost of airtime (64x64 at 4 levels is 144 s, at 16
+levels 287 s, and there is no cap on it); the upscaler is what makes the small
+grids worth sending. Generation C was
 cut because a byte-exact file transfer has no loss to learn from -- the code
 is in the git history, not the tree.
 
@@ -157,36 +169,62 @@ H(f) from amplifying noise; `EPSILON` is 1e-5, chosen by measuring both ways
   (exact), low-pass 80.90 -> 15.17, band-stop 50.05 -> 29.68 (better, still
   broken), clipping unchanged by definition. `tests/test_inverse.py` pins that
   ordering.
-- `POST /api/channel` takes `undo` and `epsilon`, and returns an `undone`
-  block with its own image, metrics and row profile beside the damaged one.
+- `POST /api/channel` takes `undo`, `epsilon` and `restore`, and returns
+  `undone` and `restored` blocks, each with its own image, metrics and row
+  profile beside the damaged one.
 - `undo_gain` must be told the peak the encoder aimed for (0.8 open, 0.5
   locked). Scaling to anything else costs ~0.08 of mean activation error,
   because the decoder divides by the gain in the metadata.
 
-### The restoration model (`spectral/restore/upscaler.py`, `/api/tel/enhance`)
+### The restoration models (`spectral/restore/`)
 
-`tools/upscaler_best.pt` is a U-Net (3 in, 3 out, base 32, three levels plus
-skips). It is **Track 2 only**: upscaling and dequantising a Generation B
-picture, 32x32 at a few levels up to 128x128. The Call page's "Enhance with
-the model" button is the only caller, and the result is shown as a third
-picture captioned as a guess, never merged into the rebuilt one.
+Two checkpoints in `tools/`, one per track, both the same U-Net apart from the
+first layer. `spectral/restore/model.py` holds that network **once** and reads
+the shape off the file (`inp.weight` is `(base, in_channels, 3, 3)`), so
+retraining and dropping the new `.pt` in place is all a new model needs -
+including a different width or a different number of input planes. Both
+wrappers re-read the file when its mtime changes, so no server restart either.
+`load_state_dict` is strict: a file that is not this network fails at load
+rather than quietly producing worse pictures.
 
-- Nothing recorded how the checkpoint was trained, so the conventions were
-  **measured** by running every plausible combination against known pairs:
-  input is RGB 0-1 resized to 128 with **bicubic**, the output is a
-  **residual** to add to that input, and the activation is **ReLU**. Reading
-  the output as the picture scores 0.187 mean error; adding it scores 0.0735,
-  against 0.0952 for plain bicubic. `load_state_dict` is strict, so the
-  architecture in the file and the checkpoint cannot silently drift.
-- **It does not do Track 1.** Measured on Track 1 activations it made every
-  case worse, including clean input (0.0000 -> 0.0907), which is what using a
-  model outside its training domain looks like. Track 1 damage is handled by
-  the LTI inverse above; clipping, dead rows and aliasing stay unfixed, and
-  the UI says so. A Track 1 model would need the 5-channel input that
-  `docs/RESTORATION_PLAN.md` Phase 3 describes - this checkpoint has 3.
-- torch is **optional** and not in `requirements.txt` proper. `upscaler.status()`
-  drives the button, `/api/tel/info` carries it as `model`, and the endpoint
-  answers 503 with what to install. `tests/test_upscaler.py` skips without it.
+Neither checkpoint recorded how it was fed, so **both conventions were
+measured**, not guessed, by running every plausible combination against known
+pairs. Both predict a **residual** - the change to add to the input, not the
+picture. Reading the output directly scores 2-6x worse on both.
+
+**Track 2 - `upscaler.py`, `tools/upscaler_best.pt`, `POST /api/tel/enhance`.**
+3 channels in. Upscales and dequantises a Generation B picture (32x32 at a few
+levels -> 128x128); input is RGB 0-1 resized to 128 with bicubic. Beats plain
+bicubic 27.63 vs 33.80 mean pixel error on the real call path. The Call page's
+"Enhance with the model" button is the only caller, and the result is shown as
+a third picture captioned as a guess, never merged into the rebuilt one.
+
+**Track 1 - `restorer.py`, `tools/restore_best.pt`, `POST /api/channel`
+with `restore: true`.** 5 channels in, exactly RESTORATION_PLAN Phase 3:
+0-2 the activation, 3 the row index (0 at the top row, which is `f_max`), 4 a
+confidence mask (**1 where the row arrived, 0 where a stop-band killed it** -
+measured; the other polarity scores worse). It runs **after** the LTI inverse,
+never instead of it, because the inverse is exact where it applies.
+
+Measured end to end at 128x128, mean activation error - and the reason the
+bench shows three columns rather than one number:
+
+| | damaged | + inverse | + model |
+|---|---|---|---|
+| clipping | 0.1471 | 0.1471 | **0.0939** |
+| clip + noise | 0.1115 | 0.1115 | **0.0669** |
+| band-stop | 0.2011 | **0.1189** | 0.1187 |
+| low-pass | 0.3213 | **0.0578** | 0.0958 |
+| already clean | 0.0000 | **0.0000** | 0.0523 |
+
+It earns its place on damage with no inverse and gets in the way everywhere
+else, so it is **off by default** and the page reports all three stages. Those
+numbers move when the checkpoint is replaced; nothing else has to.
+
+torch is **optional** and not in `requirements.txt` proper. `status()` on each
+wrapper drives the button, `/api/tel/info` and `/api/channel/effects` carry it
+as `model`, and the endpoints answer 503 with what to install.
+`tests/test_upscaler.py` and `tests/test_restorer.py` skip without it.
 
 ### The experiments bench (`/experiments`, `/api/channel`)
 
