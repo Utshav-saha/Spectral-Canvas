@@ -84,6 +84,22 @@ def test_the_same_slip_destroys_a_stream_without_markers():
     assert np.mean(decoded(slipped(audio), info) == act) < 0.30  # slipped: gone
 
 
+def test_a_sloppy_preamble_lock_is_absorbed():
+    """The first segment gets a marker too, because the preamble cannot place
+    it. PREAMBLE alternates between two tones, so its score is broad: measured
+    on a real 36 s call it landed 110 samples early, and at that offset 57.8%
+    of the first segment read correctly against 83.2% at the true one. Worse,
+    its margin there was *higher* - a window sitting mostly inside the previous
+    symbol looks decisive and is wrong - so nothing downstream could have
+    noticed. Without a leading marker, 160 samples of error was already fatal.
+    """
+    act = picture(32, 32, 1, 4)
+    audio, info = image_fsk.encode_image(act, levels=4)
+    for bias in (0, 40, 80, 110, 160, 250):
+        assert np.mean(decoded(audio[bias:], info) == act) == 1.0, \
+            f"a {bias}-sample preamble error was not absorbed"
+
+
 def test_a_clean_transmission_is_still_exact():
     """Markers must not cost anything when there is nothing to correct."""
     for channels, levels in ((1, 4), (3, 16)):
@@ -111,5 +127,8 @@ def test_the_markers_are_counted_in_the_airtime():
     _, info = image_fsk.encode_image(act, levels=16)
     assert seconds == pytest.approx(info["duration_seconds"], abs=0.05)
     assert info["wire_symbols"] > info["n_symbols"]
-    # 8 symbols every 512 is 1.6%; anything near 10% means a wrong interval
-    assert info["wire_symbols"] / info["n_symbols"] < 1.05
+    # 8 symbols every 64 is 12.5%, and that figure was chosen against the
+    # wander measured on a real call - see RESYNC_INTERVAL. A big move either
+    # way means the interval changed without the airtime being re-measured.
+    overhead = info["wire_symbols"] / info["n_symbols"] - 1
+    assert 0.10 < overhead < 0.15, f"{overhead:.1%} of the wire is markers"

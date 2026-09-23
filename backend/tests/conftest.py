@@ -71,6 +71,9 @@ def genb_audio():
     rng = np.random.default_rng(11)
     activation = np.round(rng.random((16, 16)) * 3) / 3
     bits = image_fsk.activation_to_bits(activation, 4)
-    audio, info = fsk.modulate(bits, fec=True,
+    # resync=0 mirrors voip/encode.py: this package reads the wire with its
+    # own voip.framing, which counts symbols itself and knows nothing about
+    # fsk_codec's re-sync markers. The markers belong to the app's Track 2.
+    audio, info = fsk.modulate(bits, fec=True, resync=0,
                                header=framing.build_genb_header(16, 16, 4))
     return audio, activation, info

@@ -164,7 +164,14 @@ def prepare(source=None, text=None, generation="A", grid=DEFAULT_GRID,
         bits, payload_meta = payload.build_genb_bits(to_send, levels)
         header = framing.build_genb_header(payload_meta["rows"],
                                            payload_meta["cols"], levels)
-        audio, info = fsk.modulate(bits, fec=True, header=header)
+        # No re-sync markers on this path. They are the app's Track 2 format
+        # (see fsk_codec.RESYNC), and this package carries its own framing
+        # instead: a 16-bit descriptor that makes a recording self-describing
+        # from the audio alone, read back by voip.framing rather than by
+        # fsk.demodulate's own segment walk. The two layers each own the wire
+        # they read, and mixing them would break voip.framing's symbol
+        # arithmetic - `resync=0` keeps this one exactly as its tests pin it.
+        audio, info = fsk.modulate(bits, fec=True, header=header, resync=0)
         header_value = int("".join(map(str, header)), 2)
         payload_meta.update(mode="L", channels=1, locked=bool(locked))
     else:

@@ -67,15 +67,34 @@ HEADER_SYMBOLS = 7          # 16 data bits -> 28 coded bits -> 7 symbols
 # so any nonzero shift lines up none of them.
 RESYNC = np.array([0, 9, 2, 13, 6, 15, 4, 11])
 
-# Payload symbols between markers. 512 symbols is 20.5 s, and eight marker
-# symbols every 512 costs 1.6% of the airtime.
-RESYNC_INTERVAL = 512
+# Payload symbols between markers, and the reason it is this small.
+#
+# A handset does not merely slip occasionally: measured across a real 160 s
+# call, the phone's timing wandered over a range of 805 samples - 2.5 whole
+# symbols - at a median 15.6 samples/s with jumps to 352, and it wandered both
+# directions rather than drifting one way. Between anchors that accumulates:
+#
+#     symbols between anchors   2.56 s   5.12 s   10.2 s   20.5 s
+#     median drift (samples)        50      130      165      135
+#     95th percentile              272      367      425      353
+#
+# against a tolerance of about 80 samples before a symbol is read from the
+# wrong place. Replaying that measured wander over the real GSM channel:
+#
+#     interval    512     256     128      64      48      32
+#     airtime   164.2s  166.7s  171.8s  181.8s  188.5s  201.9s
+#     exact      55.2%   79.3%   86.3%   98.6%   99.2%   99.5%
+#
+# 64 is the knee. Below it the airtime climbs and the picture barely improves.
+# The markers cost 12.5% of the wire, which is the price of the channel being
+# a phone rather than a file.
+RESYNC_INTERVAL = 64
 
-# How far a marker is hunted for around where it was expected. Because every
-# marker re-anchors absolutely, this has to cover one segment's slip, not the
-# whole call's: four symbols is more than six times the worst jump measured
-# between two markers.
-RESYNC_SPAN = 4 * SYMBOL_SAMPLES
+# How far a marker is hunted for around where it was expected. Every marker
+# re-anchors absolutely, so this covers one interval's wander, not the call's:
+# two symbols is well past the 272-sample 95th percentile above, and keeping it
+# tight is what stops the search wandering onto a spurious peak.
+RESYNC_SPAN = 2 * SYMBOL_SAMPLES
 
 
 # --------------------------------------------------------------------------
@@ -136,13 +155,15 @@ def _to_symbols(bits):
     return bits.reshape(-1, BITS_PER_SYMBOL) @ np.array([8, 4, 2, 1]), pad
 
 
-def modulate(bits, fec=True, header=None, resync=RESYNC_INTERVAL):
+def modulate(bits, fec=True, header=None, resync=None):
     """header: optional 16-bit array describing the payload, sent uncoded of
     interleaving so the receiver can read it standalone.
 
     resync: payload symbols between re-sync markers, or 0 for none. The
     markers are what let a long call survive a jitter-buffer slip; see RESYNC.
     """
+    # resolved here, not in the signature, so the constant stays tunable
+    resync = RESYNC_INTERVAL if resync is None else resync
     bits = np.asarray(bits, dtype=np.uint8)
     n_payload = len(bits)
 
@@ -166,13 +187,18 @@ def modulate(bits, fec=True, header=None, resync=RESYNC_INTERVAL):
         hsym, _ = _to_symbols(hcoded)
         head = [_tone(s, t, window) for s in hsym[:HEADER_SYMBOLS]]
 
-    # Markers go *between* segments, so the first segment starts where it
-    # always did and a reader that ignores them still finds the first 512.
+    # A marker leads EVERY segment, the first one included. The preamble
+    # cannot do that job: it alternates between two tones, so its score is
+    # broad and it localises poorly - measured on a real 36 s call, it landed
+    # 110 samples early, which read 57.8% of the first segment correctly where
+    # the true alignment read 83.2%. The marker's eight distinct tones give a
+    # sharp peak instead, so segment one is anchored exactly as well as the
+    # rest. The preamble's remaining job is to be findable at all, in a
+    # recording that starts whenever Record was pressed.
     body = []
     if resync:
         for i in range(0, len(symbols), resync):
-            if i:
-                body.extend(int(s) for s in RESYNC)
+            body.extend(int(s) for s in RESYNC)
             body.extend(int(s) for s in symbols[i:i + resync])
     else:
         body = [int(s) for s in symbols]
@@ -240,13 +266,14 @@ def _marker_score(audio, offset):
     return float(np.mean(mags[np.arange(len(RESYNC)), RESYNC] / total))
 
 
-def find_marker(audio, expected, span=RESYNC_SPAN, step=8):
+def find_marker(audio, expected, span=None, step=8):
     """Where the marker near `expected` really is; returns the offset AFTER it.
 
     Absolute, not relative: each marker is hunted for around where the symbol
     count says it should be, so an error corrected here does not carry into
     the next segment and cannot accumulate over a long call.
     """
+    span = RESYNC_SPAN if span is None else span
     room = len(audio) - len(RESYNC) * SYMBOL_SAMPLES
     lo, hi = max(0, expected - span), min(room, expected + span)
     if hi <= lo:
@@ -284,15 +311,13 @@ def demodulate(audio, info, offset=None):
     interval = int(info.get("resync_interval") or 0)
     if interval:
         # Read one segment, re-anchor on the marker that follows it, repeat.
-        chunks, pos, left, first = [], data_start, n_symbols, True
+        chunks, pos, left = [], data_start, n_symbols
         while left > 0:
-            if not first:
-                pos = find_marker(audio, pos)
+            pos = find_marker(audio, pos)
             count = min(interval, left)
             chunks.append(np.argmax(_symbol_magnitudes(audio, pos, count), axis=1))
             pos += count * SYMBOL_SAMPLES
             left -= count
-            first = False
         symbols = np.concatenate(chunks)
     else:
         mags = _symbol_magnitudes(audio, data_start, n_symbols)
