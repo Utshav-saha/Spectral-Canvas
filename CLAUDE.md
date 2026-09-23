@@ -229,27 +229,44 @@ bicubic 27.63 vs 33.80 mean pixel error on the real call path. The Call page's
 "Enhance with the model" button is the only caller, and the result is shown as
 a third picture captioned as a guess, never merged into the rebuilt one.
 
-**Track 1 - `restorer.py`, `tools/restore_best.pt`, `POST /api/channel`
+**Track 1 - `restorer.py`, `tools/restore_v3.pt`, `POST /api/channel`
 with `restore: true`.** 5 channels in, exactly RESTORATION_PLAN Phase 3:
 0-2 the activation, 3 the row index (0 at the top row, which is `f_max`), 4 a
 confidence mask (**1 where the row arrived, 0 where a stop-band killed it** -
 measured; the other polarity scores worse). It runs **after** the LTI inverse,
 never instead of it, because the inverse is exact where it applies.
 
-Measured end to end at 128x128, mean activation error - and the reason the
-bench shows three columns rather than one number:
+`restore_v3.pt` replaced `restore_best.pt`, which is still in `tools/` and
+still loads if `SPECTRAL_RESTORER` points at it. Both are the same 5-channel
+U-Net, so the swap was the path and nothing else - `model.py` reads the shape
+off the file. Both were measured, not assumed, on the same conventions:
+residual output (reading it directly scores ~5x worse on both) and
+1-where-alive on channel 4 (~7x worse flipped).
 
-| | damaged | + inverse | + model |
-|---|---|---|---|
-| clipping | 0.1471 | 0.1471 | **0.0939** |
-| clip + noise | 0.1115 | 0.1115 | **0.0669** |
-| band-stop | 0.2011 | **0.1189** | 0.1187 |
-| low-pass | 0.3213 | **0.0578** | 0.0958 |
-| already clean | 0.0000 | **0.0000** | 0.0523 |
+Measured end to end at 128x128 grayscale, 16 levels, mean activation error
+against the activation sent - and the reason the bench shows three columns
+rather than one number:
 
-It earns its place on damage with no inverse and gets in the way everywhere
-else, so it is **off by default** and the page reports all three stages. Those
-numbers move when the checkpoint is replaced; nothing else has to.
+| | damaged | + inverse | + v3 | + restore_best |
+|---|---|---|---|---|
+| clipping | 0.0453 | 0.0453 | **0.0431** | 0.0373 |
+| clip + noise | 0.0423 | 0.0423 | 0.0424 | **0.0365** |
+| noise | 0.0003 | 0.0003 | **0.0004** | 0.0379 |
+| band-stop | 0.0826 | 0.0472 | **0.0427** | 0.0820 |
+| low-pass | 0.1444 | 0.0450 | **0.0417** | 0.0795 |
+| echo | 0.0533 | **0.0000** | **0.0000** | 0.0377 |
+| already clean | 0.0000 | **0.0000** | **0.0000** | 0.0377 |
+
+The trade changed shape, which is the reason to prefer v3. The old checkpoint
+bought its clipping win by repainting everything it touched - 0.0377 of error
+into a picture with nothing wrong with it, and it broke echo, which the
+inverse had already undone exactly. v3 leaves clean input alone, keeps echo
+exact, and improves band-stop and low-pass *on top of* the inverse where the
+old one made both markedly worse; it gives up a little on raw clipping to do
+it. So v3 no longer has to be kept away from undamaged pictures, though
+`restore` is still **off by default** and the page still reports all three
+stages, because which stage earned the repair is the thing worth showing.
+Those numbers move when the checkpoint is replaced; nothing else has to.
 
 torch is **in `requirements.txt`** (pinned to 2.14.0), so both models are on by
 default. The graceful-degradation path is still intact and worth keeping: drop

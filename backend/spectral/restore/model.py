@@ -3,7 +3,7 @@
 There are two checkpoints in `tools/`:
 
     upscaler_best.pt   Track 2: 3 channels in  (a small picture)
-    restore_best.pt    Track 1: 5 channels in  (activation + row index + mask)
+    restore_v3.pt      Track 1: 5 channels in  (activation + row index + mask)
 
 They are the same network apart from that first layer, so it is written once
 here and the shape is read off the file rather than hardcoded:

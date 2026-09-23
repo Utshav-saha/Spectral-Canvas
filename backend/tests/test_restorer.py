@@ -3,7 +3,7 @@
 Two things are protected here.
 
 **That the model is swappable.** The architecture is read off the checkpoint
-rather than hardcoded, so dropping a retrained `restore_best.pt` in place is
+rather than hardcoded, so dropping a retrained checkpoint in place is
 all that a new model should need - including one with a different width or a
 different number of input planes. `load_state_dict` is strict, so a file that
 is not this network fails at load instead of quietly producing worse pictures.
@@ -20,7 +20,7 @@ from spectral.restore import model as unet
 from spectral.restore import restorer
 
 needs_model = pytest.mark.skipif(
-    not restorer.available(), reason="no PyTorch or no restore_best.pt")
+    not restorer.available(), reason="no PyTorch or no checkpoint")
 
 
 def _torch_available():
@@ -123,7 +123,7 @@ def test_reloads_when_the_file_changes(tmp_path, monkeypatch):
     """Retraining should not need a server restart."""
     import shutil
 
-    copy = str(tmp_path / "restore_best.pt")
+    copy = str(tmp_path / "restore_copy.pt")
     shutil.copyfile(restorer.MODEL_PATH, copy)
     monkeypatch.setattr(restorer, "MODEL_PATH", copy)
     restorer._CACHE.clear()
