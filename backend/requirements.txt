@@ -1,10 +1,14 @@
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-python-multipart==0.0.20
-numpy==2.2.1
-scipy==1.15.0
-pillow==11.1.0
-pydantic==2.10.4
+# Pinned to the environment the Call page is known to work in
+# (Python 3.14.5, macOS). Use the same Python minor version where possible.
+fastapi==0.141.1
+starlette==1.6.0
+uvicorn==0.52.4
+python-multipart==0.0.32
+numpy==2.5.3
+scipy==1.18.1
+pillow==12.3.0
+pydantic==2.13.5
+pydantic_core==2.46.5
 
 # The two learned models: the Call page's "Enhance with the model" button and
 # the Experiments bench's "Then run the model". The checkpoints they load live
@@ -18,3 +22,10 @@ torch==2.14.0
 # tests only
 pytest==9.1.1
 httpx==0.28.1
+
+# Not pip packages, but the Call page needs them on PATH:
+#   ffmpeg  - reads phone recordings (.mka, .m4a, .caf)   brew install ffmpeg
+#   toast   - GSM 06.10 for the simulated call when ffmpeg lacks libgsm
+#                                                         brew install libgsm
+#   pjsua   - only for placing a real SIP call            brew install pjproject
+# Check with: python -m voip.cli check-env

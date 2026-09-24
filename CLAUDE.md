@@ -260,12 +260,28 @@ rather than one number:
 The trade changed shape, which is the reason to prefer v3. The old checkpoint
 bought its clipping win by repainting everything it touched - 0.0377 of error
 into a picture with nothing wrong with it, and it broke echo, which the
-inverse had already undone exactly. v3 leaves clean input alone, keeps echo
-exact, and improves band-stop and low-pass *on top of* the inverse where the
-old one made both markedly worse; it gives up a little on raw clipping to do
-it. So v3 no longer has to be kept away from undamaged pictures, though
-`restore` is still **off by default** and the page still reports all three
-stages, because which stage earned the repair is the thing worth showing.
+inverse had already undone exactly. v3 is far gentler: its residual on clean
+input is +0.0076 against the old one's +0.0408, it keeps echo exact, and it
+improves band-stop and low-pass *on top of* the inverse where the old one made
+both markedly worse.
+
+**The 0.0000 entries above are at 16 levels and are a quantisation result, not
+an identity.** The step at 16 levels is 0.0667, and v3's residual on clean
+input is about a tenth of that, so the quantiser swallows it whole. Raise
+`gray_levels` and it reappears: clean input scores 0.0000 / 0.0019 / 0.0061 /
+0.0076 at 16 / 32 / 64 / 256 levels, changing 0.1% of pixels at 16 and 91% at
+256. v3 is an order of magnitude quieter than the old checkpoint, which is the
+real claim; it is not a no-op. That is why `restore` stays **off by default**
+and the page still reports all three stages.
+
+The same timidity is why v3 barely moves clipping. That damage is nearly pure
+bias - mean signed error -0.0448 against mean absolute 0.0453, with 43% of
+pixels exactly one level too light - and both checkpoints push the right way,
+but v3's residual is 27% of the needed magnitude where the old one's is 87%.
+Under a 0.0667 step a 0.0129 correction moves only 5.8% of pixels across a
+level boundary. On pixels actually corrected v3 still nets slightly ahead
+(fixes 3.5%, breaks 0.9%) of the old checkpoint (fixes 21.1%, breaks 19.0%),
+which wins on MAE by churning half the image.
 Those numbers move when the checkpoint is replaced; nothing else has to.
 
 torch is **in `requirements.txt`** (pinned to 2.14.0), so both models are on by

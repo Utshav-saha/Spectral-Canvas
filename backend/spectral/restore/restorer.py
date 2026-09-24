@@ -46,16 +46,36 @@ checkpoint this one replaced, run on the same bench:
 The shape of the trade changed, and that is the reason to prefer v3. The old
 checkpoint bought its win on clipping by repainting everything it touched: it
 put 0.0377 of error into a picture that had *nothing* wrong with it, and it
-broke echo, which the inverse had already undone exactly. v3 leaves clean
-input alone (0.0000), keeps echo exact, and now *improves* band-stop and
-low-pass on top of the inverse where the old one made both markedly worse.
-It gives up a little on raw clipping (0.0431 against 0.0373) to do it.
+broke echo, which the inverse had already undone exactly. v3 keeps echo exact
+and *improves* band-stop and low-pass on top of the inverse, where the old one
+made both markedly worse.
 
-So it no longer has to be kept away from undamaged pictures. The bench still
-reports all three columns - damaged, inverted, model - because which stage
-earned the repair is the thing worth showing, not the final number alone.
-Swap in another checkpoint and these numbers move; nothing else has to change,
-because the shape is read off the file.
+**Read the 0.0000 rows carefully: they are quantisation, not an identity.**
+v3's residual on clean input is +0.0076, about a tenth of the 0.0667 step at
+16 levels, so the quantiser rounds it away and the error prints as zero. Raise
+`gray_levels` and it comes back - 0.0000 / 0.0019 / 0.0061 / 0.0076 at
+16 / 32 / 64 / 256 levels, touching 0.1% of pixels at 16 and 91% at 256. The
+honest claim is that v3 is an order of magnitude quieter than the old
+checkpoint (+0.0076 against +0.0408), not that it does nothing.
+
+**That same timidity is why clipping barely moves.** Clipping damage is almost
+pure bias - mean signed error -0.0448 against mean absolute 0.0453, 43% of
+pixels exactly one level too light - and both checkpoints push the right way.
+But v3's residual is 27% of the magnitude needed (the old one's is 87%), and a
+0.0129 correction under a 0.0667 step carries only 5.8% of pixels over a level
+boundary; the rest snap back to where they were. Counted in pixels it is still
+the better trade - v3 fixes 3.5% and breaks 0.9%, against 21.1% fixed and
+19.0% broken - so the old checkpoint's better MAE here is bought by churning
+half the picture to come out barely ahead.
+
+Noise is a different story: there is simply nothing to fix. The decoder
+averages each tone over a whole frame, which already suppresses 20 dB noise to
+0.0003 with 0.5% of pixels wrong, so 0% is the ceiling rather than a failure.
+
+The bench reports all three columns - damaged, inverted, model - because which
+stage earned the repair is the thing worth showing, not the final number
+alone. Swap in another checkpoint and these numbers move; nothing else has to
+change, because the shape is read off the file.
 """
 
 import os
