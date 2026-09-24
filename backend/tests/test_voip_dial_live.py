@@ -49,7 +49,7 @@ class _StandInPhone:
         self.recording = recording
         self.proc = subprocess.Popen(
             ["pjsua", "--null-audio", "--no-vad", "--clock-rate=8000",
-             "--no-tcp", "--dis-codec=*", "--add-codec=PCMU",
+             "--no-tcp", "--dis-codec=*", "--add-codec=GSM",
              f"--local-port={port}", "--auto-answer=200",
              f"--rec-file={recording}", "--auto-rec", "--app-log-level=4"],
             stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
@@ -88,7 +88,7 @@ def placed_call(tmp_path, monkeypatch, synthetic_image):
 
     phone = _StandInPhone(port, recording)
     try:
-        call_id = dial.place(audio, f"sip:phone@127.0.0.1:{port}", codec="PCMU")
+        call_id = dial.place(audio, f"sip:phone@127.0.0.1:{port}", codec="GSM")
         deadline = time.time() + 180
         while time.time() < deadline:
             state = dial.progress(call_id)
@@ -174,14 +174,14 @@ def test_the_phone_can_call_us_instead(tmp_path, monkeypatch, synthetic_image):
                                grid=16, levels=4)
     recording = str(tmp_path / "phone.wav")
 
-    call_id = dial.answer(prepared.audio, codec="PCMU")
+    call_id = dial.answer(prepared.audio, codec="GSM")
     time.sleep(6)                      # let it bind and settle
     # it binds a free port rather than fighting everything else over 5060
     our_port = dial.progress(call_id)["local_port"]
 
     phone = subprocess.Popen(
         ["pjsua", "--null-audio", "--no-vad", "--clock-rate=8000", "--no-tcp",
-         "--dis-codec=*", "--add-codec=PCMU", f"--local-port={_free_port()}",
+         "--dis-codec=*", "--add-codec=GSM", f"--local-port={_free_port()}",
          f"--rec-file={recording}", "--auto-rec", "--app-log-level=4",
          f"sip:mac@127.0.0.1:{our_port}"],
         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
@@ -204,3 +204,49 @@ def test_the_phone_can_call_us_instead(tmp_path, monkeypatch, synthetic_image):
     assert state["state"] == "done", state.get("error")
     result = decoder.decode(recording, manifest=prepared.manifest)
     assert result.ok, f"verdict {result.verdict}"
+
+
+@needs_pjsua
+def test_the_recording_holds_the_transmission_only_once(placed_call):
+    """The regression guard for pjsua's looping file player.
+
+    It restarts the WAV on reaching the end, and the hangup comes two seconds
+    after the last tone, so the far end used to record the head of a second
+    transmission. That second preamble scores exactly as well as the first, and
+    as soon as Record is pressed a moment late it is the only one left: sync
+    lands a few seconds from the end of the file, finds no transmission behind
+    it, and rebuilds a blank white picture that reports itself as found.
+
+    Measured on a real 48x48 call before the fix: Record 0.25 s late took the
+    rebuild from 100% of pixels exact to a blank frame.
+    """
+    from voip import sync
+    from voip.audio_io import load_audio
+
+    recorded, _ = load_audio(placed_call["recording"])
+    sent = len(placed_call["audio"])
+
+    located = sync.find_preamble(recorded)
+    assert located.found
+
+    # nothing preamble-like may follow the end of the one transmission
+    tail = recorded[located.offset + sent:]
+    if len(tail) > 4000:
+        after = sync.find_preamble(tail)
+        assert not after.found, (
+            f"a second preamble {after.offset / 8000:.1f}s into the tail "
+            f"(score {after.score:.3f}): the player looped back into the call")
+
+
+@needs_pjsua
+def test_the_codec_that_was_negotiated_is_reported(placed_call):
+    """The one safeguard the whole telephony argument rests on.
+
+    If GSM was not compiled into this pjsua it falls back to PCMU, which is
+    nearly transparent, and a clean decode over G.711 says nothing about
+    surviving a voice codec. This is the assertion that the page can actually
+    tell you which one you got - it used to search pjsua's log for the word
+    "codec", which pjsua never writes on a line that names one, so it reported
+    nothing for every call ever placed.
+    """
+    assert placed_call["state"].get("negotiated") == "GSM"

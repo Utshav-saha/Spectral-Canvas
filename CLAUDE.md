@@ -152,6 +152,29 @@ message when either is missing.
   virtual audio cable that a softphone uses as its microphone. `call/session.py`
   is the older liblinphone route, still reachable from `voip/cli.py`. Both
   report *why* they cannot run rather than 404ing, so the page can say so.
+- **pjsua's file player loops, and nothing on the command line stops it.**
+  `--play-file` has no no-loop option and `--auto-play-hangup` only applies to
+  `--auto-play`, which feeds incoming calls. The hangup comes two seconds after
+  the last tone, so every call used to record the head of a *second*
+  transmission. That is not cosmetic: the second preamble scores exactly as
+  well as the first, so once Record is pressed a moment late it is the only one
+  left, sync lands a few seconds from the end of the file with no transmission
+  behind it, and the decoder zero-fills the rest and returns a **blank white
+  picture reported as found**. Measured on a real 48x48 call: Record 0.25 s
+  late took the rebuild from 100% of pixels exact to a blank frame. `dial.py`
+  appends `LOOP_GUARD_SECONDS` (20 s) of silence to the WAV it hands pjsua, so
+  the player loops into nothing; the silence is in the *file* only, and
+  `expected_seconds` stays the length of the transmission. `voip.sync` defends
+  the other side of it — see `find_preamble(need_samples=...)` below.
+- `_negotiated_codec` reads the codec out of pjsua's log, and the page shows
+  it. It used to search for the word "codec", which pjsua never writes on a
+  line that names one (`..audio updated, stream #0: GSM (sendrecv)` and
+  `a=rtpmap:3 GSM/8000` are the real forms), so it returned None for every call
+  ever placed — the one safeguard against a silent PCMU fallback, silently
+  absent. Its test asserted against an invented log line, which is how the two
+  agreed with each other and both stayed wrong; it now asserts against real
+  pjsua output. `_run` hangs up with `ha`, not `h`: `h` closes whichever call
+  pjsua's own cursor points at.
 - Audio only comes back from a real call **as a recording made on the phone**
   (Linphone's in-call Record button): pjsua can only record its own inbound
   leg, which is the muted microphone. That recording arrives through `upload`
@@ -180,7 +203,58 @@ message when either is missing.
   seconds, which covers the simulator's 0.12-0.9 s of silence but never a real
   recording, where Record was pressed at some unknown point tens of seconds
   before playback started. `voip.sync` scans the whole file and returns a
-  confidence score with the offset.
+  confidence score with the offset. `locate()` also passes
+  **`need_samples`** — how much audio the transmission occupies, worked out
+  before the search — and `find_preamble` then prefers the best candidate with
+  room for it. That is what keeps a recording holding the preamble twice from
+  syncing to the copy that has nothing behind it. The fallback is deliberate:
+  when *nothing* has room the recording really is short, and the best-scoring
+  offset with `truncated` set is the honest answer.
+- **A truncated recording no longer claims to know which end is missing.**
+  Record pressed after the tones began looks exactly like Record stopped before
+  they ended, and naming only the second sends people off to re-record the same
+  way again. The message gives the shortfall in seconds and both causes.
+- **Whether a recording can carry a picture is decided by `symbol_error`, not
+  by how loud anything was.** `tel_pipeline.symbol_error` decodes the payload,
+  re-encodes it through Hamming(7,4) and the interleaver, and counts the
+  symbols that disagree — a measurement that needs no reference picture, no
+  send session and no knowledge of the channel, which is the situation the
+  Receive tab is in. It replaced a rule (one bin dominating **and** the symbols
+  winning by under 100x) that was calibrated against PCMU and was quietly
+  invalidated when the project switched to GSM:
+
+  | | bin imbalance | median margin | symbol errors |
+  |---|---|---|---|
+  | clean, no channel | 50x | 341 | 0.00% |
+  | **real GSM call, 100% of pixels exact** | 45x | **50** | **0.00%** |
+  | `hello.mkv`, damaged | 45x | 56 | 10.81% |
+  | `me_rec.mkv`, destroyed | 47x | 59 | 11.61% |
+
+  The margin does not separate them — the *perfect* recording scores lower than
+  both damaged ones — because GSM 06.10 models every 20 ms frame with an 8-pole
+  LPC envelope and squashes the runner-up tone whether or not anything is
+  wrong. So every good GSM call was told its tones had not survived, and told
+  to go and change phone settings that were already right. The margin is also
+  insensitive to the damage that matters: tilting the band 0 to 80 dB moved it
+  157 -> 145 while the symbol error went 0 -> 3.5%. `SYMBOL_ERROR_WARN` is
+  0.02, calibrated on the same call:
+
+  | symbol errors | 0.00% | 0.25% | 1.19% | 2.06% | 3.50% | 10.81% |
+  |---|---|---|---|---|---|---|
+  | pixels exact | 100% | 99.96% | 99.52% | 98.91% | 96.92% | ~87% |
+
+  Imbalance and margin are still reported — they say something about *how* a
+  recording is damaged — but they decide nothing.
+- **Clipping is reported and is not treated as damage.** It used to raise an
+  alarm of its own at 2%. GSM overshoots on its own (this modem hands it a
+  signal peaking at 0.70 and gets one pinned at 1.0 back, **4.6% of samples
+  clipped on a perfect call**), so the threshold fired on every GSM recording
+  and blamed the phone's volume for what the codec was doing. And clipping
+  costs this modem nothing anyway: driven to 2x, 10x, 500x full scale — 95% of
+  samples clipped, near enough a square wave — the symbol error stays 0.00%,
+  because 16-FSK decides by which tone bin is largest and squaring a sine
+  leaves its fundamental on top. `clipped_fraction` and `saturated` are still
+  in the payload as facts about the recording.
 - `app/main.py` mounts that router inside a `try/except ImportError`, so a
   machine missing the call dependencies still starts the rest of the app and
   `/api/tel/*` answers 503 with what to install. Keep that guard.

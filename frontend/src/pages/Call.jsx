@@ -1689,6 +1689,23 @@ function CallReceive({ reference, model }) {
                       </dd>
                       <dt>Complete</dt>
                       <dd>{found.truncated ? "Cut short" : "Yes"}</dd>
+                      {found.symbol_error != null && (
+                        <>
+                          {/* Measured against the transmission's own
+                              error-correcting code, so it needs no reference
+                              picture: decode it, re-encode what came out, and
+                              count the symbols that disagree. Unlike the tone
+                              margin it does not move when the codec changes -
+                              a perfect GSM call reads 0% here and 50x on the
+                              margin, where a clean PCMU one reads 340x. */}
+                          <dt>Symbols wrong</dt>
+                          <dd>
+                            {found.symbol_error === 0
+                              ? "none"
+                              : `${(found.symbol_error * 100).toFixed(1)}%`}
+                          </dd>
+                        </>
+                      )}
                     </dl>
 
                     <label className="switch">

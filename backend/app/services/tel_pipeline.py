@@ -330,41 +330,140 @@ def locate(audio, metadata):
             start = int(tel_decoder.pilot_align(audio, gen_meta))
             end = start + frames * gen_meta["frame_samples"]
             return {"offset": start, "score": None, "truncated": bool(end > len(audio))}
-        located = voip_sync.find_preamble(audio)
-        end = (located.offset + announce * fsk.SYMBOL_SAMPLES
-               + frames * gen_meta["frame_samples"])
+        need = announce * fsk.SYMBOL_SAMPLES + frames * gen_meta["frame_samples"]
+        located = voip_sync.find_preamble(audio, need_samples=need)
+        end = located.offset + need
         return {"offset": int(located.offset), "score": round(float(located.score), 4),
                 "found": bool(located.found), "truncated": bool(end > len(audio))}
 
-    located = voip_sync.find_preamble(audio)
     info = metadata["fsk"]
     # wire_symbols counts the re-sync markers; n_symbols does not, so a
     # marker-carrying transmission is longer on the wire than its payload
     frames = len(fsk.PREAMBLE) + int(info.get("wire_symbols") or info["n_symbols"])
     if info.get("has_header"):
         frames += int(info.get("header_symbols", fsk.HEADER_SYMBOLS))
-    end = located.offset + frames * fsk.SYMBOL_SAMPLES
+    # How much audio the transmission needs, worked out before the search so
+    # the search can prefer a preamble with room behind it: a recording can
+    # hold the preamble twice over (voip.sync._best_with_room explains why),
+    # and picking the later copy rebuilds a blank picture.
+    need = frames * fsk.SYMBOL_SAMPLES
+    located = voip_sync.find_preamble(audio, need_samples=need)
+    end = located.offset + need
     return {"offset": int(located.offset), "score": round(float(located.score), 4),
             "found": bool(located.found), "truncated": bool(end > len(audio))}
 
 
-# Whether the sixteen tones survived the call. Measured on real recordings:
+# Whether the tones survived the call, measured against the transmission's own
+# error-correcting code rather than against how loud anything was.
 #
-#                             bin imbalance   median margin   clipped   rebuilt
-#   destroyed real call            57x             48          4.2%       79%
-#   good loopback                  11x            225          0.0%      100%
-#   good clean 24x24                6x            340          0.0%      100%
+# The measurement that forced this. A real 48x48 call over GSM that rebuilt
+# **100% of pixels exactly**, beside two phone recordings that did not:
 #
-# Imbalance alone is NOT enough, and getting that wrong told a user their
-# working recording was unrecoverable: a mostly-white picture sends the lowest
-# tone over and over, so one bin legitimately carries tens of times the median.
-# The margin is what does not depend on the picture - it asks how decisively
-# each symbol beat its runner-up, whichever tone was sent. Both have to look
-# bad before this says anything, because a false alarm here sends someone off
-# to re-record a recording that was fine.
-CLIPPED_FRACTION = 0.02
+#                              bin imbalance   median margin   symbol errors
+#   clean, no channel                50x            341             0.00%
+#   real GSM call, perfect           45x             50             0.00%
+#   hello.mkv, damaged               45x             56            10.81%
+#   me_rec.mkv, destroyed            47x             59            11.61%
+#
+# The margin does not separate them - the *perfect* recording scores lower than
+# both damaged ones - so the old rule (imbalance high AND margin low) fired on
+# every good GSM call there is. It was calibrated when the project dialled with
+# PCMU, which is nearly transparent; GSM 06.10 models each 20 ms frame with an
+# 8-pole LPC envelope, and that squashes the runner-up tone whether or not
+# anything is wrong. Swapping the codec quietly invalidated the metric.
+#
+# Nor is the margin sensitive to the damage that matters: tilting the band by
+# 0 to 80 dB moved it only 157 -> 145 while the symbol error went 0 -> 3.5%.
+#
+# So the warning now rests on `symbol_error`, which asks the recording a
+# question with a knowable answer: decode it, re-encode what came out, and
+# count the symbols that disagree. Hamming(7,4) and the interleaver repair most
+# of them, which is why the threshold is where it is - calibrated on the same
+# call, spectral tilt as the damage:
+#
+#   symbol errors   0.00%   0.25%   1.19%   2.06%   3.50%   10.81%
+#   pixels exact     100%  99.96%  99.52%  98.91%  96.92%     ~87%
+#
+# Imbalance and margin are still reported, because they say something about
+# *how* a recording is damaged. They just no longer decide anything.
+#
+# Neither does clipping, which used to raise an alarm of its own. Two
+# measurements retired it. GSM overshoots on its own - this modem hands the
+# codec a signal peaking at 0.70 and gets one pinned at 1.0 back, 4.6% of
+# samples above 0.99 on a *perfect* call - so the 2% threshold fired on every
+# GSM recording there is, and told people to turn the phone's volume down when
+# the codec was doing it. And clipping does not cost this modem anything
+# anyway: driven to 2x, 10x, 500x full scale - 95% of samples clipped, near
+# enough a square wave - the symbol error stays 0.00%, because 16-FSK decides
+# by which tone bin is largest and squaring a sine leaves its fundamental on
+# top. `clipped_fraction` is still reported as a fact about the recording;
+# it is no longer evidence of anything.
+SATURATED_FRACTION = 0.02
+SYMBOL_ERROR_WARN = 0.02
 BIN_IMBALANCE = 25.0
 WEAK_MEDIAN_MARGIN = 100.0
+
+# kept under its old name: other callers and tests read it
+CLIPPED_FRACTION = SATURATED_FRACTION
+
+
+def symbol_error(audio, metadata, offset=0):
+    """Fraction of symbols the channel corrupted, with no original to compare to.
+
+    The transmission carries Hamming(7,4) over an interleaver, so the payload
+    can be decoded and then re-encoded, and the symbols that come back out are
+    the symbols that should have arrived. Everything the code had to repair
+    shows up as a disagreement. No reference picture, no send session and no
+    knowledge of the channel is needed - only the recording and what it says it
+    is, which is the situation the Receive tab is actually in.
+
+    None when it cannot be measured: Generation A, a short recording, or
+    anything unexpected, in which case the caller falls back on the other
+    numbers rather than inventing one.
+    """
+    if metadata.get("generation") != "B":
+        return None
+    try:
+        import fsk_codec as fsk
+
+        info = dict(metadata.get("fsk") or {})
+        n_symbols = int(info.get("n_symbols") or 0)
+        if n_symbols < 64:
+            return None
+
+        head = (int(info.get("header_symbols", fsk.HEADER_SYMBOLS))
+                if info.get("has_header") else 0)
+        start = int(offset) + (len(fsk.PREAMBLE) + head) * fsk.SYMBOL_SAMPLES
+        if start >= len(audio):
+            return None
+
+        interval = int(info.get("resync_interval") or 0)
+        if interval:
+            # read exactly the way demodulate does, re-anchoring on each marker,
+            # so the comparison is against the symbols the decoder really used
+            chunks, pos, left = [], start, n_symbols
+            while left > 0:
+                pos = fsk.find_marker(audio, pos)
+                count = min(interval, left)
+                chunks.append(np.argmax(
+                    fsk._symbol_magnitudes(audio, pos, count), axis=1))
+                pos += count * fsk.SYMBOL_SAMPLES
+                left -= count
+            got = np.concatenate(chunks)
+        else:
+            got = np.argmax(fsk._symbol_magnitudes(audio, start, n_symbols), axis=1)
+
+        bits = fsk.demodulate(audio, info, int(offset))
+        coded, _ = fsk.hamming_encode(np.asarray(bits, dtype=np.uint8))
+        coded, _ = fsk.interleave(coded)
+        expected, _ = fsk._to_symbols(coded)
+
+        count = min(len(got), len(expected))
+        if count < 64:
+            return None
+        return float(np.mean(got[:count] != expected[:count]))
+    except Exception:
+        return None
 
 
 def signal_health(audio, metadata, offset=0):
@@ -374,9 +473,12 @@ def signal_health(audio, metadata, offset=0):
     about whether the tones survived. Without this the page rebuilds a
     confident-looking wrong picture and the obvious suspect is the PIN.
     """
-    report = {"clipped_fraction": float(np.mean(np.abs(audio) > 0.99)),
+    clipped = float(np.mean(np.abs(audio) > 0.99))
+    report = {"clipped_fraction": clipped,
+              "saturated": bool(clipped > SATURATED_FRACTION),
               "bin_imbalance": None, "median_margin": None,
-              "dominant_tone_share": None, "warning": None}
+              "dominant_tone_share": None, "symbol_error": None,
+              "warning": None}
 
     if metadata.get("generation") == "B":
         try:
@@ -401,26 +503,20 @@ def signal_health(audio, metadata, offset=0):
         except Exception:
             pass
 
-    imbalance = report["bin_imbalance"]
-    margin = report["median_margin"]
-    clipped = report["clipped_fraction"]
+    report["symbol_error"] = symbol_error(audio, metadata, offset)
 
-    if (imbalance is not None and margin is not None
-            and imbalance > BIN_IMBALANCE and margin < WEAK_MEDIAN_MARGIN):
+    errors = report["symbol_error"]
+
+    if errors is not None and errors > SYMBOL_ERROR_WARN:
         report["warning"] = (
-            f"The symbols in this recording are only winning by {margin:.0f}x, "
-            "where a clean one wins by 200x or more, so a share of them will be "
-            "read wrong however well it syncs and whatever the PIN. Measured on "
-            "recordings like this: about one symbol in ten. Turn the phone's "
-            "call volume down - both bad recordings so far came back pinned at "
-            "full scale - and check that echo cancellation and noise suppression "
-            "really are off and that GSM is enabled in the phone's codec list."
-        )
-    elif clipped > CLIPPED_FRACTION:
-        report["warning"] = (
-            f"{clipped * 100:.1f}% of this recording is clipped at full scale. Turn "
-            "the phone's call volume down and record again; a saturated recording "
-            "loses which tone was playing."
+            f"About {errors * 100:.0f} symbols in every 100 arrived as the wrong "
+            "tone, and the error-correcting code can only repair a fraction of "
+            "that, so some of this picture will be read wrong however well it "
+            "syncs and whatever the PIN. Check that echo cancellation and noise "
+            "suppression really are off on the phone and that GSM is enabled in "
+            "its codec list, and keep the handset off speakerphone - a "
+            "microphone that can hear the earpiece puts the room on top of the "
+            "tones."
         )
     return report
 
@@ -441,6 +537,25 @@ def identify(audio):
         return call_track.identify(audio, located.offset)
     except Exception:
         return None
+
+
+def _wire_samples(metadata):
+    """How many samples the whole transmission occupies, preamble included."""
+    import fsk_codec as fsk
+
+    if metadata.get("generation") == "A":
+        gen_meta = metadata.get("tel") or {}
+        frames = (metadata["columns"] * metadata["channels"]
+                  + gen_meta.get("preamble_frames", 0))
+        announce = int(gen_meta.get("announce_symbols") or 0)
+        return (announce * fsk.SYMBOL_SAMPLES
+                + frames * gen_meta.get("frame_samples", 0))
+
+    info = metadata.get("fsk") or {}
+    frames = len(fsk.PREAMBLE) + int(info.get("wire_symbols") or info.get("n_symbols") or 0)
+    if info.get("has_header"):
+        frames += int(info.get("header_symbols", fsk.HEADER_SYMBOLS))
+    return frames * fsk.SYMBOL_SAMPLES
 
 
 def run_inspect(audio, metadata=None, self_described=False):
@@ -464,8 +579,17 @@ def run_inspect(audio, metadata=None, self_described=False):
                    "is not a recording of this call, or Record was started too "
                    "late.")
     elif located["truncated"]:
-        message = ("Found, but the recording stops before the transmission ends. "
-                   "The tail of the picture will be missing.")
+        # Short at this offset, and the audio cannot say which end is missing:
+        # Record pressed after the tones began looks exactly like Record
+        # stopped before they ended. Naming only the second sends people off to
+        # re-record the same way again.
+        short = (located["offset"] + _wire_samples(metadata)) - len(audio)
+        message = (f"Found, but the recording is about {short / SAMPLE_RATE:.0f}s "
+                   "shorter than the transmission, so part of the picture is "
+                   "missing. Either Record was pressed after the tones had "
+                   "started, or it was stopped before they finished - start it "
+                   "before you answer and leave it running until the call hangs "
+                   "up on its own.")
         if not self_described:
             message += (" If the recording is complete, check it is being read "
                         "against the send it really came from: a different "
@@ -492,12 +616,20 @@ def run_inspect(audio, metadata=None, self_described=False):
         # recording came up "Locked".
         "locked": bool(metadata.get("security_enabled", False)),
         "clipped_fraction": round(health["clipped_fraction"], 4),
+        # a fact about the recording, not a verdict on it: GSM saturates the
+        # signal by itself and this modem decodes a square wave perfectly well
+        "saturated": health["saturated"],
         "dominant_tone_share": (None if health["dominant_tone_share"] is None
                                 else round(health["dominant_tone_share"], 3)),
         "bin_imbalance": (None if health["bin_imbalance"] is None
                           else round(health["bin_imbalance"], 1)),
         "median_margin": (None if health["median_margin"] is None
                           else round(health["median_margin"], 1)),
+        # the fraction of symbols the channel corrupted, measured against the
+        # transmission's own error-correcting code: the one number here that
+        # does not depend on the picture or the codec
+        "symbol_error": (None if health["symbol_error"] is None
+                         else round(health["symbol_error"], 4)),
         "signal_warning": health["warning"],
         "generation": metadata.get("generation"),
         "offset_seconds": round(located["offset"] / SAMPLE_RATE, 3),

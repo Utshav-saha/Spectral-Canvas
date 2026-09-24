@@ -174,14 +174,55 @@ def refine_offset(audio, offset, span=SYMBOL_SAMPLES // 2, n_probe=64):
     return best_offset, best_margin
 
 
+def _best_with_room(scores, stride, n_samples, need_samples, threshold):
+    """Index of the winning candidate, preferring one the transmission fits in.
+
+    A recording of a real call can contain the preamble more than once, because
+    pjsua's file player loops: it reaches the end of the WAV and starts it
+    again, so a call hung up a moment after the last tone records the head of a
+    second copy. Both copies score identically -- it is the same preamble --
+    and which one `argmax` returns is decided by noise.
+
+    That is only a coin toss until the first preamble is missing, which is
+    exactly what happens when Record is pressed a moment too late. Then the
+    second copy is the only one left, `argmax` finds it a few seconds from the
+    end of the file, and there is no transmission behind it: the decoder reads
+    a hundred symbols, zero-fills the other four thousand, and hands back a
+    blank white picture with every sign of having worked. Measured on a real
+    48x48 call: Record 0.25 s late took the rebuild from 100% of pixels exact
+    to a blank frame.
+
+    So when the caller knows how long the transmission is, a candidate with
+    room for it wins over one without. The fallback is deliberate: if *nothing*
+    has room the recording really is short, and the best-scoring offset with
+    `truncated` set is the honest answer, which is what this did before.
+    """
+    if not need_samples:
+        return int(np.argmax(scores))
+
+    room = n_samples - int(need_samples)
+    if room < 0:
+        return int(np.argmax(scores))
+
+    fits = scores[:room // stride + 1]
+    if len(fits) and float(fits.max()) >= threshold:
+        return int(np.argmax(fits))
+    return int(np.argmax(scores))
+
+
 def find_preamble(audio, search_seconds=None, stride=SYNC_STRIDE,
-                  threshold=SYNC_SCORE_THRESHOLD, fine=True, refine=True):
+                  threshold=SYNC_SCORE_THRESHOLD, fine=True, refine=True,
+                  need_samples=None):
     """Locate the transmission. `search_seconds=None` scans the whole file.
 
     Coarse pass on the `stride` grid, then a per-sample pass either side of the
     winner, then optional decision-directed refinement when the score is
     marginal. Returns a SyncResult whose `found` flag is the answer to "is
     there a transmission in this audio at all".
+
+    `need_samples` is how much audio the transmission occupies, when the caller
+    knows. A recording can hold the preamble **twice**, and then the highest
+    score is the wrong one -- see `_best_with_room`.
     """
     audio = np.asarray(audio, dtype=np.float64)
     warnings = []
@@ -202,13 +243,19 @@ def find_preamble(audio, search_seconds=None, stride=SYNC_STRIDE,
                           search_seconds=search_seconds,
                           warnings=["Not enough audio to hold a preamble."])
 
-    best_index = int(np.argmax(scores))
+    best_index = _best_with_room(scores, stride, len(audio), need_samples,
+                                 threshold)
     offset = best_index * stride
     score = float(scores[best_index])
 
     if fine:
         low = max(0, offset - stride)
         high = min(len(audio) - minimum, offset + stride)
+        if need_samples and len(audio) - int(need_samples) >= 0:
+            # do not let the per-sample pass walk the winner a few samples past
+            # the end of the transmission and report a complete recording as
+            # truncated over 10 ms
+            high = min(high, len(audio) - int(need_samples))
         for candidate in range(low, high + 1):
             candidate_score = preamble_score(audio, candidate)
             if candidate_score > score:

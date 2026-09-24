@@ -172,6 +172,26 @@ ANSWER_GRACE = 8.0
 # to pick the phone up, find the app and dial.
 WAIT_TIMEOUT = 180.0
 
+# Silence appended to the WAV pjsua is given, past the end of the transmission.
+#
+# pjsua's file player **loops**: it reaches the end of the WAV and starts it
+# again, and there is no flag to stop it -- `--play-file` takes no no-loop
+# option, and `--auto-play-hangup` only applies to `--auto-play`, which feeds
+# incoming calls. So every call this module placed recorded the head of a
+# second transmission, because the hangup comes two seconds after the last tone
+# and the player had already gone back to the preamble.
+#
+# That is not cosmetic. The second copy's preamble scores exactly as well as
+# the first -- it is the same preamble - so as soon as the first one is missing,
+# which is what happens when Record is pressed a moment late, the decoder locks
+# onto the copy a few seconds from the end of the file and rebuilds a blank
+# white picture. Measured on a real 48x48 call: Record 0.25 s late took the
+# rebuild from 100% of pixels exact to a blank frame, reported as "found".
+#
+# Silence costs 16 kB/s in a temporary file and nothing on the wire that the
+# two seconds of looped tones did not already cost.
+LOOP_GUARD_SECONDS = 20.0
+
 
 def _free_port():
     """A SIP port nothing else holds.
@@ -313,6 +333,16 @@ def _ports(log_text, wav):
     return player, call
 
 
+def _with_loop_guard(audio, seconds=None):
+    """The transmission followed by silence, so the looping player cannot
+    start a second copy before the call is hung up. See LOOP_GUARD_SECONDS."""
+    import numpy as np
+
+    pad = int((LOOP_GUARD_SECONDS if seconds is None else seconds) * SAMPLE_RATE)
+    return np.concatenate([np.asarray(audio, dtype=np.float64),
+                           np.zeros(pad, dtype=np.float64)])
+
+
 def _run(call_id, creds, target, wav, duration, codec):
     started = time.time()
     log = tempfile.NamedTemporaryFile(prefix="pjsua-", suffix=".log",
@@ -377,7 +407,10 @@ def _run(call_id, creds, target, wav, duration, codec):
         _CALLS[call_id]["state"] = "playing"
 
         time.sleep(duration + 2.0)
-        console.say("h")
+        # `ha`, not `h`: `h` hangs up the current call, and which call that is
+        # depends on pjsua's own cursor. There is only ever one here, so
+        # hanging up all of them is the same thing with one less assumption.
+        console.say("ha")
         time.sleep(1.0)
         console.say("q")
         try:
@@ -463,18 +496,42 @@ def _why_it_never_connected(log_text, target):
               "machine instead, does not depend on that.")
 
 
-def _negotiated_codec(log_text):
-    """Which codec actually got used.
+# What pjsua actually prints when a stream comes up, e.g.
+#   ..audio updated, stream #0: GSM (sendrecv)
+# It never uses the word "codec" on that line, which is why the check below
+# used to look for one and always came back with nothing.
+_STREAM_CODEC = re.compile(
+    r"stream\s*#\d+\s*:\s*([A-Za-z0-9._/-]+)\s*\((?:send|recv)", re.I)
+# the SDP answer, which is the same fact from the other end
+_RTPMAP = re.compile(r"a=rtpmap:\d+\s+([A-Za-z0-9._-]+)/(\d+)", re.I)
 
-    Worth surfacing every time: if GSM was not compiled into pjsua it falls
-    back to PCMU, which is nearly transparent, and a clean decode over that
-    proves almost nothing about surviving a real call.
+# telephone-event is DTMF, not a voice codec; it is offered alongside every one
+# of them and would otherwise win the scan.
+_NOT_A_VOICE_CODEC = {"telephone-event"}
+
+
+def _negotiated_codec(log_text):
+    """Which codec actually got used, as pjsua reports it.
+
+    Worth surfacing every time, and the reason is the whole point of the
+    project: if GSM was not compiled into this pjsua it falls back to PCMU,
+    which is nearly transparent, and a clean decode over G.711 says nothing
+    about surviving a voice codec. The page has to be able to show which one
+    the call really negotiated rather than which one was asked for.
+
+    This looked for the word "codec" in the log. pjsua never writes it on the
+    lines that name one, so it returned None for every call ever placed -- the
+    one safeguard the design leans on, silently absent.
     """
     for line in log_text.splitlines():
-        low = line.lower()
-        if "codec" in low and ("gsm" in low or "pcmu" in low or "pcma" in low
-                               or "ilbc" in low or "opus" in low or "speex" in low):
-            return line.strip()[:200]
+        found = _STREAM_CODEC.search(line)
+        if found and found.group(1).lower() not in _NOT_A_VOICE_CODEC:
+            return found.group(1)
+
+    for line in log_text.splitlines():
+        found = _RTPMAP.search(line)
+        if found and found.group(1).lower() not in _NOT_A_VOICE_CODEC:
+            return f"{found.group(1)}/{found.group(2)}"
     return None
 
 
@@ -531,7 +588,10 @@ def _start(creds, target, audio, duration, codec):
     try:
         handle, path = tempfile.mkstemp(prefix="tx-", suffix=".wav")
         os.close(handle)
-        write_int16_wav(path, audio, SAMPLE_RATE)
+        # the silence is in the file only: `seconds` stays the length of the
+        # transmission, which is what the page counts down and what the sleep
+        # before the hangup is measured against
+        write_int16_wav(path, _with_loop_guard(audio), SAMPLE_RATE)
 
         seconds = duration or (len(audio) / float(SAMPLE_RATE))
         call_id = uuid.uuid4().hex[:16]

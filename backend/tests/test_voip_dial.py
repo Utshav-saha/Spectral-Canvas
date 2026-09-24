@@ -6,6 +6,10 @@ stand between a user and a silently wrong call: the wrong account, a password
 in a request body, or pjsua quietly negotiating a transparent codec.
 """
 
+import inspect
+import os
+
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -117,13 +121,40 @@ def test_forcing_a_codec_disables_the_rest(configured):
     assert "--add-codec=GSM" in argv
 
 
+# Copied out of /tmp/pjsua_*.log after a real GSM call, not paraphrased. The
+# previous version of this test invented a line containing the word "codec",
+# the implementation searched for that word, and the two agreed with each other
+# for months while the feature returned None for every call ever placed --
+# pjsua does not use the word "codec" on any line that names one.
+REAL_PJSUA_LOG = """\
+13:27:20.961          pjsua_call.c  .Media updates
+m=audio 4000 RTP/AVP 3 120
+a=rtpmap:3 GSM/8000
+a=rtpmap:120 telephone-event/8000
+13:27:20.963         pjsua_media.c  ......audio updated, stream #0: GSM (sendrecv)
+"""
+
+
 def test_the_negotiated_codec_is_read_back_out():
     """Worth surfacing every call: if GSM was not compiled into pjsua it falls
     back to PCMU, which is nearly transparent, and a clean decode over that
-    proves almost nothing."""
-    log = "13:20:01 pjsua_media.c Media session audio codec GSM @8000Hz\n"
-    assert "GSM" in dial._negotiated_codec(log)
+    proves almost nothing.
+
+    Asserted against pjsua's real output, because that is the thing that has to
+    be parsed and the thing the last version of this test got wrong.
+    """
+    assert dial._negotiated_codec(REAL_PJSUA_LOG) == "GSM"
+    assert dial._negotiated_codec(
+        "..audio updated, stream #0: PCMU (sendrecv)") == "PCMU"
     assert dial._negotiated_codec("nothing of interest here") is None
+
+
+def test_dtmf_is_not_mistaken_for_the_voice_codec():
+    """telephone-event rides along in every SDP there is. Reading it as the
+    negotiated codec would report DTMF on a perfectly ordinary GSM call."""
+    assert dial._negotiated_codec("a=rtpmap:120 telephone-event/8000") is None
+    assert dial._negotiated_codec(
+        "a=rtpmap:120 telephone-event/8000\na=rtpmap:3 GSM/8000") == "GSM/8000"
 
 
 # --------------------------------------------------------------------------
@@ -186,3 +217,70 @@ def test_dialling_an_expired_session_is_a_404(client):
 
 def test_an_unknown_call_id_is_a_404(client):
     assert client.get("/api/tel/dial/nope").status_code == 404
+
+
+# --------------------------------------------------------------------------
+# The looping player
+# --------------------------------------------------------------------------
+
+def test_the_transmission_is_padded_so_the_player_cannot_loop_into_the_call():
+    """pjsua's file player restarts the WAV when it reaches the end.
+
+    There is no way to turn that off from the command line - `--play-file` has
+    no no-loop option and `--auto-play-hangup` only applies to `--auto-play`,
+    which feeds incoming calls. The hangup comes two seconds after the last
+    tone, so every call this placed recorded the head of a second transmission,
+    and a recording holding the preamble twice is how a late Record turns into
+    a blank picture (see voip.sync._best_with_room).
+
+    Silence past the end is the fix: the player loops into nothing.
+    """
+    audio = np.zeros(8000, dtype=np.float64) + 0.5
+    padded = dial._with_loop_guard(audio)
+
+    assert len(padded) == len(audio) + int(dial.LOOP_GUARD_SECONDS * 8000)
+    assert np.array_equal(padded[:len(audio)], audio)
+    assert not padded[len(audio):].any()
+    # long enough to cover the two seconds of margin before the hangup and the
+    # time pjsua takes to act on it
+    assert dial.LOOP_GUARD_SECONDS > 2.0
+
+
+def test_the_padding_does_not_change_how_long_the_page_is_told_to_wait(
+        monkeypatch, configured, tmp_path):
+    """The silence is in the file only. `expected_seconds` is what the page
+    counts down and what the sleep before the hangup is measured against, so
+    padding it would leave the call up for an extra twenty seconds of nothing.
+    """
+    monkeypatch.setattr(dial, "available", lambda: True)
+    started = {}
+    monkeypatch.setattr(dial.threading, "Thread",
+                        lambda target, args, daemon: type(
+                            "T", (), {"start": lambda self: started.update(
+                                wav=args[3], seconds=args[4])})())
+
+    audio = np.zeros(8000 * 5, dtype=np.float64)
+    call_id = dial.place(audio, "sip:phone@example.org", codec="GSM")
+    try:
+        assert dial.progress(call_id)["expected_seconds"] == 5.0
+        assert started["seconds"] == 5.0
+
+        import wave
+        with wave.open(started["wav"]) as written:
+            on_disk = written.getnframes() / written.getframerate()
+        assert on_disk == pytest.approx(5.0 + dial.LOOP_GUARD_SECONDS, abs=0.01)
+    finally:
+        try:
+            os.unlink(started["wav"])
+        except OSError:
+            pass
+        dial._LOCK.release()
+
+
+def test_hanging_up_does_not_depend_on_which_call_pjsua_thinks_is_current():
+    """`h` hangs up the current call, and which one that is comes from pjsua's
+    own cursor. `ha` hangs up all of them, which is the same thing here with
+    one assumption fewer."""
+    source = inspect.getsource(dial._run)
+    assert 'console.say("ha")' in source
+    assert 'console.say("h")' not in source

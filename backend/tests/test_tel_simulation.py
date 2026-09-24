@@ -191,7 +191,7 @@ def test_a_mostly_blank_picture_is_not_mistaken_for_a_dead_channel():
     health = tel.signal_health(audio, meta, 0)
 
     assert health["bin_imbalance"] > tel.BIN_IMBALANCE      # looks alarming
-    assert health["median_margin"] > tel.WEAK_MEDIAN_MARGIN  # but decided cleanly
+    assert health["symbol_error"] == 0.0                     # but nothing is wrong
     assert health["warning"] is None, health
 
 
@@ -211,25 +211,84 @@ def test_a_recording_with_only_one_tone_left_says_so():
     the only visible symptom used to be a wrong picture blamed on the PIN."""
     from app.services import tel_pipeline as tel
 
-    # 85 dB of tilt to reach both the imbalance AND the weak margin the real
-    # destroyed call showed (57x, margin 48);
-    # a pure tilt is gentler than the real damage, which also had a tone
-    # sitting on top of the lowest bin.
+    # 85 dB of tilt to reach the damage the real destroyed call showed.
     audio, meta = _genb_recording(tilt_db=85.0)
     health = tel.signal_health(audio, meta, 0)
-    assert health["bin_imbalance"] > tel.BIN_IMBALANCE
-    assert health["median_margin"] < tel.WEAK_MEDIAN_MARGIN
+    assert health["symbol_error"] > tel.SYMBOL_ERROR_WARN
     assert "read wrong" in health["warning"]
     assert "noise suppression" in health["warning"]
 
 
-def test_a_clipped_recording_says_so():
+@needs_gsm
+def test_a_perfect_gsm_call_is_not_called_damaged():
+    """The regression that switching the project from PCMU to GSM introduced.
+
+    The warning used to fire when one bin dominated *and* the symbols won by
+    less than 100x. Both thresholds were calibrated against PCMU, which is
+    nearly transparent. GSM 06.10 models every 20 ms frame with an 8-pole LPC
+    envelope, so it squashes the runner-up tone on a *perfect* call: measured
+    on a real 48x48 SIP call that rebuilt 100% of pixels exactly, imbalance
+    45x and margin 50 - worse on both counts than the damaged phone recordings
+    the thresholds were drawn from.
+
+    So every good GSM call was told its tones had not survived, and the advice
+    it gave was to go and change phone settings that were already right.
+    """
+    from spectral.tel import channel_sim
+    from app.services import tel_pipeline as tel
+
+    audio, meta = _genb_recording()
+    through_gsm = channel_sim.gsm_roundtrip(audio)
+
+    health = tel.signal_health(through_gsm, meta, 0)
+
+    # the picture really does survive: that is what makes a warning a false alarm
+    assert health["symbol_error"] == 0.0
+    assert health["warning"] is None, health
+
+    # and the metric it used to rest on is no help at all here
+    assert health["median_margin"] < tel.WEAK_MEDIAN_MARGIN
+
+
+def test_clipping_is_reported_without_claiming_the_symbols_were_lost():
+    """Saturation is worth reporting, but it is not the same as damage.
+
+    Measured: a recording clipped to three times full scale still decodes every
+    symbol correctly. The margin collapses (16, against 340 clean) and the
+    picture is untouched - one more reason the margin cannot be the thing that
+    decides whether a recording is ruined.
+    """
     from app.services import tel_pipeline as tel
 
     audio, meta = _genb_recording(clip=3.0)
     health = tel.signal_health(audio, meta, 0)
-    assert health["clipped_fraction"] > tel.CLIPPED_FRACTION
-    assert health["warning"]
+
+    assert health["clipped_fraction"] > tel.SATURATED_FRACTION
+    assert health["saturated"] is True
+    assert health["symbol_error"] == 0.0
+    assert health["median_margin"] < tel.WEAK_MEDIAN_MARGIN
+
+
+def test_saturation_is_noted_but_is_not_treated_as_damage():
+    """Clipping used to raise an alarm. Two measurements retired it.
+
+    GSM overshoots on its own - the modem hands it a signal peaking at 0.70 and
+    gets one pinned at 1.0 back, 4.6% of samples clipped on a perfect call - so
+    the threshold fired on every GSM recording and blamed the phone's volume
+    for what the codec was doing. And clipping costs this modem nothing anyway:
+    at 500x full scale, 95% of samples clipped and near enough a square wave,
+    every symbol still arrives correct, because 16-FSK decides by which tone
+    bin is largest and squaring a sine leaves its fundamental on top.
+    """
+    from app.services import tel_pipeline as tel
+
+    audio, meta = _genb_recording(clip=500.0)
+    health = tel.signal_health(audio, meta, 0)
+
+    assert health["clipped_fraction"] > 0.9      # essentially a square wave
+    assert health["saturated"] is True           # still reported as a fact
+    assert health["symbol_error"] == 0.0         # and still perfectly readable
+    assert health["warning"] is None, health
 
 
 def test_the_real_call_defaults_to_the_codec_the_project_is_about():

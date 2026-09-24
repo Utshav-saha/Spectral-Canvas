@@ -147,3 +147,63 @@ def test_coarse_scan_peaks_at_the_transmission(transmission):
     audio, truth = recording(transmission, 6.0)
     scores, stride = sync.coarse_scan(audio)
     assert abs(int(np.argmax(scores)) * stride - truth) <= stride
+
+
+# --------------------------------------------------------------------------
+# A recording that holds the preamble twice
+# --------------------------------------------------------------------------
+
+def test_a_second_copy_of_the_transmission_does_not_win(transmission):
+    """pjsua's file player loops, so a real recording holds the preamble twice.
+
+    There is no flag to stop it: `--play-file` takes no no-loop option, and the
+    hangup comes a couple of seconds after the last tone, by which time the
+    player has already gone back to the start. Both copies score identically -
+    it is the same preamble - so which one `argmax` returns is decided by
+    noise, and the wrong answer is catastrophic rather than slightly off: there
+    is no transmission behind the second copy, so the decoder reads a handful
+    of symbols, zero-fills the rest and hands back a blank white picture with
+    every sign of having worked.
+
+    Measured on a real 48x48 SIP call before this: Record pressed 0.25 s late
+    took the rebuild from 100% of pixels exact to a blank frame.
+    """
+    rng = np.random.default_rng(3)
+    lead = rng.normal(0.0, 1e-4, SAMPLE_RATE)
+    # the whole transmission, then the head of a second copy, as a call that
+    # hangs up two seconds after the last tone records it
+    doubled = np.concatenate([lead, transmission, transmission[:2 * SAMPLE_RATE]])
+    first = len(lead)
+    second = first + len(transmission)
+
+    # plain argmax is free to pick either; make the later one score higher so
+    # the test is about the rule and not about which way the noise fell
+    plain = sync.find_preamble(doubled + rng.normal(0.0, 1e-6, len(doubled)))
+    assert plain.offset in (first, second)
+
+    located = sync.find_preamble(doubled, need_samples=len(transmission))
+    assert located.found
+    assert located.offset == first, (
+        "sync landed on the looped copy, which has no transmission behind it")
+    assert located.offset + len(transmission) <= len(doubled)
+
+
+def test_a_genuinely_short_recording_still_syncs_and_is_reported(transmission):
+    """The fallback has to stay: preferring a candidate with room must not turn
+    a truncated recording into "no transmission found". It is still located, at
+    the only offset there is, and the caller compares lengths and says so."""
+    cut = transmission[:len(transmission) // 2]
+    rng = np.random.default_rng(4)
+    audio = np.concatenate([rng.normal(0.0, 1e-4, SAMPLE_RATE), cut])
+
+    located = sync.find_preamble(audio, need_samples=len(transmission))
+    assert located.found
+    assert located.offset == SAMPLE_RATE
+    assert located.offset + len(transmission) > len(audio)     # i.e. truncated
+
+
+def test_need_samples_is_optional_and_changes_nothing_when_it_fits(transmission):
+    """A single clean copy must land on exactly the same sample either way."""
+    audio, truth = recording(transmission, 3.0)
+    assert sync.find_preamble(audio).offset == truth
+    assert sync.find_preamble(audio, need_samples=len(transmission)).offset == truth
