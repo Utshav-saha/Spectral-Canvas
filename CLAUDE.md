@@ -101,7 +101,7 @@ file with no `track` field predates the split and is Track 1.
   all** - exactness is the only reason to choose it. `plan()` returns `long`
   past 5 minutes so the page can caution rather than refuse. The biggest B
   will carry is 64x64 RGB at 16 levels: 16.1 min of wire time (14.3 of tones
-  plus 12.5% of re-sync markers, 968 s), a 15.5 MB WAV,
+  plus 12.5% of re-sync markers, 969 s), a 15.5 MB WAV,
   and it still runs in under a second because the "call" is offline. There is
   no modem ceiling underneath this - `image_fsk.encode_image` sends no length
   header, so the geometry comes from the session. The Send page's Track 2
@@ -156,13 +156,26 @@ message when either is missing.
   (Linphone's in-call Record button): pjsua can only record its own inbound
   leg, which is the muted microphone. That recording arrives through `upload`
   (`read_any_audio` -> `voip/audio_io.py` -> ffmpeg, since Linphone writes
-  Matroska `.mka` and iOS shares `.m4a`/`.caf`), then `inspect` matches it to
-  its send.
+  Matroska `.mka` and iOS shares `.m4a`/`.caf`), and `upload` reads what it
+  is off the recording itself.
+- **Every Call-page transmission is self-describing on the wire.**
+  `spectral/tel/descriptor.py` packs generation, grid, colour, levels, lock
+  and FEC into 32 bits with a CRC-8, sent twice (28 symbols, 1.12 s) right
+  after the FSK preamble: in the modem's header slot for Gen B, and as an
+  "announcement" (FSK preamble + descriptor) played before Gen A's pilots.
+  `call_track.identify(audio, offset)` rebuilds the full metadata from it
+  (`fsk.frame_info` and `tel_encoder.describe` compute the info dicts without
+  audio), so the Receive tab needs no send session - a recording made on
+  someone else's machine rebuilds alone. A self-described recording's own
+  settings always win; a `reference_id` then only supplies the picture to
+  score against, and only if it is the same geometry. Reading against the
+  wrong send used to report a complete recording as "stops before the
+  transmission ends". A recording from before descriptors (or with both
+  copies damaged) falls back to the old `reference_id` path.
 - `receive` rebuilds from either end, `rx.wav`, `tx.wav` or an uploaded
-  recording, and scores it against the activation actually transmitted. Neither
-  generation is self-describing on the wire, so the geometry comes from the
-  send session via `reference_id`; `tel_pipeline.locate()` finds the start —
-  pilot alignment for Gen A, `voip/sync.py` for Gen B. **Use `voip.sync`, not
+  recording, and scores it against the activation actually transmitted when
+  the send is known. `tel_pipeline.locate()` finds the start — `voip/sync.py`
+  for both generations, pilot alignment only for a pre-descriptor Gen A. **Use `voip.sync`, not
   `fsk_codec.find_preamble`, here**: the latter only searches the first few
   seconds, which covers the simulator's 0.12-0.9 s of silence but never a real
   recording, where Record was pressed at some unknown point tens of seconds

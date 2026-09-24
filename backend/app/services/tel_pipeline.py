@@ -317,20 +317,32 @@ def locate(audio, metadata):
     send session and hands its metadata back here. What this adds is the
     offset, because a phone recording starts whenever Record was pressed.
     """
-    if metadata.get("generation") == "A":
-        import tel_decoder
-        start = int(tel_decoder.pilot_align(audio, metadata["tel"]))
-        frames = metadata["columns"] * metadata["channels"] + metadata["tel"]["preamble_frames"]
-        end = start + frames * metadata["tel"]["frame_samples"]
-        return {"offset": start, "score": None, "truncated": bool(end > len(audio))}
-
     from voip import sync as voip_sync
     import fsk_codec as fsk
+
+    if metadata.get("generation") == "A":
+        gen_meta = metadata["tel"]
+        frames = metadata["columns"] * metadata["channels"] + gen_meta["preamble_frames"]
+        announce = int(gen_meta.get("announce_symbols") or 0)
+        if not announce:
+            # from before the announcement: only the pilots to go on
+            import tel_decoder
+            start = int(tel_decoder.pilot_align(audio, gen_meta))
+            end = start + frames * gen_meta["frame_samples"]
+            return {"offset": start, "score": None, "truncated": bool(end > len(audio))}
+        located = voip_sync.find_preamble(audio)
+        end = (located.offset + announce * fsk.SYMBOL_SAMPLES
+               + frames * gen_meta["frame_samples"])
+        return {"offset": int(located.offset), "score": round(float(located.score), 4),
+                "found": bool(located.found), "truncated": bool(end > len(audio))}
+
     located = voip_sync.find_preamble(audio)
     info = metadata["fsk"]
     # wire_symbols counts the re-sync markers; n_symbols does not, so a
     # marker-carrying transmission is longer on the wire than its payload
     frames = len(fsk.PREAMBLE) + int(info.get("wire_symbols") or info["n_symbols"])
+    if info.get("has_header"):
+        frames += int(info.get("header_symbols", fsk.HEADER_SYMBOLS))
     end = located.offset + frames * fsk.SYMBOL_SAMPLES
     return {"offset": int(located.offset), "score": round(float(located.score), 4),
             "found": bool(located.found), "truncated": bool(end > len(audio))}
@@ -371,7 +383,10 @@ def signal_health(audio, metadata, offset=0):
             import fsk_codec as fsk
             from voip.dsp import symbol_decisions, symbol_magnitudes
 
-            start = int(offset) + len(fsk.PREAMBLE) * fsk.SYMBOL_SAMPLES
+            info = metadata.get("fsk") or {}
+            head = (int(info.get("header_symbols", fsk.HEADER_SYMBOLS))
+                    if info.get("has_header") else 0)
+            start = int(offset) + (len(fsk.PREAMBLE) + head) * fsk.SYMBOL_SAMPLES
             count = min(int((metadata.get("fsk") or {}).get("n_symbols") or 0),
                         max(0, (len(audio) - start) // fsk.SYMBOL_SAMPLES))
             if count > 32:
@@ -410,13 +425,35 @@ def signal_health(audio, metadata, offset=0):
     return report
 
 
-def run_inspect(audio, metadata=None):
+def identify(audio):
+    """The settings a recording carries in its own descriptor, or None.
+
+    What lets the Receive tab rebuild a recording made on someone else's
+    machine: every Call-page transmission now says what it is (see
+    spectral/tel/descriptor.py). None for one from before that, a damaged
+    descriptor, or no transmission at all - those still need their send.
+    """
+    from voip import sync as voip_sync
+    try:
+        located = voip_sync.find_preamble(audio)
+        if not located.found:
+            return None
+        return call_track.identify(audio, located.offset)
+    except Exception:
+        return None
+
+
+def run_inspect(audio, metadata=None, self_described=False):
     stats = wf.global_stats(audio, SAMPLE_RATE)
     if metadata is None:
         return {
             "found": False,
-            "message": ("Loaded. Choose which transmission this is a recording "
-                        "of, below, so its settings can be used to rebuild it."),
+            "self_described": False,
+            "message": ("Loaded, but this recording does not say what it is: "
+                        "either it was sent before transmissions carried their "
+                        "own settings, or its opening was damaged. Encode the "
+                        "same picture on the Send tab with the same settings, "
+                        "then come back and it will be read against that."),
             "stats": stats,
         }
 
@@ -429,6 +466,11 @@ def run_inspect(audio, metadata=None):
     elif located["truncated"]:
         message = ("Found, but the recording stops before the transmission ends. "
                    "The tail of the picture will be missing.")
+        if not self_described:
+            message += (" If the recording is complete, check it is being read "
+                        "against the send it really came from: a different "
+                        "grid, level count or colour setting changes the "
+                        "length expected.")
     else:
         message = "Found. Rebuild it whenever you are ready."
 
@@ -439,6 +481,11 @@ def run_inspect(audio, metadata=None):
 
     return {
         "found": located.get("found", True),
+        # read off the recording itself rather than taken from a send
+        "self_described": bool(self_described),
+        "rows": metadata.get("rows"), "columns": metadata.get("columns"),
+        "gray_levels": metadata.get("gray_levels"),
+        "mode": metadata.get("mode", "L"),
         # whether the *transmission* was locked, straight from the send it was
         # matched against. A recording carries no such flag of its own, and the
         # page used to read a key no endpoint has ever returned, so every
@@ -490,7 +537,7 @@ def _retimed(trimmed, metadata):
 
         total = len(fsk.PREAMBLE) + int(info["n_symbols"])
         if info.get("has_header"):
-            total += fsk.HEADER_SYMBOLS
+            total += int(info.get("header_symbols", fsk.HEADER_SYMBOLS))
         return voip_sync.retime(trimmed, 0, total)
     except Exception:
         return trimmed

@@ -155,9 +155,85 @@ def _to_symbols(bits):
     return bits.reshape(-1, BITS_PER_SYMBOL) @ np.array([8, 4, 2, 1]), pad
 
 
+def _header_symbols(header):
+    """Header bits -> symbols, 16 bits (4 Hamming codewords, 7 symbols) a block.
+
+    Each block is interleaved across its own 7 symbols so one bad symbol costs
+    each codeword a single bit, which Hamming can then repair.
+    """
+    header = np.asarray(header, np.uint8)
+    if len(header) % HEADER_BITS:
+        raise ValueError(f"A header is whole blocks of {HEADER_BITS} bits.")
+    out = []
+    for i in range(0, len(header), HEADER_BITS):
+        hcoded, _ = hamming_encode(header[i:i + HEADER_BITS])
+        hcoded = hcoded.reshape(4, 7).T.ravel()
+        hsym, _ = _to_symbols(hcoded)
+        out.extend(int(s) for s in hsym[:HEADER_SYMBOLS])
+    return out
+
+
+def frame_info(n_payload_bits, fec=True, header_bits=0, resync=None):
+    """modulate()'s info dict, from the payload length alone - no audio.
+
+    What lets a receiver that has only read a descriptor off the wire rebuild
+    everything demodulate() needs. modulate() builds its own info here too, so
+    the two cannot disagree.
+    """
+    resync = RESYNC_INTERVAL if resync is None else resync
+    n = int(n_payload_bits)
+    if fec:
+        ham_pad = (-n) % 4
+        coded = (n + ham_pad) // 4 * 7
+        il_pad = (-coded) % INTERLEAVE_DEPTH
+        coded += il_pad
+    else:
+        coded, ham_pad, il_pad = n, 0, 0
+    pad = (-coded) % BITS_PER_SYMBOL
+    n_symbols = (coded + pad) // BITS_PER_SYMBOL
+
+    markers = -(-n_symbols // resync) if resync else 0
+    wire = n_symbols + markers * len(RESYNC)
+    header_symbols = int(header_bits) // HEADER_BITS * HEADER_SYMBOLS
+    total = len(PREAMBLE) + header_symbols + wire
+
+    return {
+        "n_payload_bits": n,
+        # payload symbols only: the markers are wire overhead and never reach
+        # bits_to_activation, so every existing reader of this field is right
+        "n_symbols": int(n_symbols),
+        "fec": bool(fec),
+        "hamming_pad": int(ham_pad),
+        "interleave_pad": int(il_pad),
+        "symbol_pad": int(pad),
+        "sample_rate": SAMPLE_RATE,
+        "symbol_ms": SYMBOL_MS,
+        "has_header": header_symbols > 0,
+        "header_symbols": header_symbols,
+        "resync_interval": int(resync or 0),
+        "wire_symbols": int(wire),
+        "duration_seconds": total * SYMBOL_SAMPLES / SAMPLE_RATE,
+    }
+
+
+def announcement(header):
+    """PREAMBLE plus a header and nothing else, at modulate()'s level.
+
+    For a transmission that is not FSK - Generation A - but still has to say
+    what it is: the receiver finds this with the same preamble search, reads
+    the header, and the multitone audio follows straight after.
+    """
+    t = np.arange(SYMBOL_SAMPLES) / SAMPLE_RATE
+    window = tukey(SYMBOL_SAMPLES, alpha=TUKEY_ALPHA)
+    symbols = [int(s) for s in PREAMBLE] + _header_symbols(header)
+    audio = np.concatenate([_tone(s, t, window) for s in symbols])
+    return audio / max(np.max(np.abs(audio)), 1e-12) * 0.7
+
+
 def modulate(bits, fec=True, header=None, resync=None):
-    """header: optional 16-bit array describing the payload, sent uncoded of
-    interleaving so the receiver can read it standalone.
+    """header: optional header bits, whole blocks of 16, sent Hamming-coded
+    but not interleaved with the payload so the receiver can read it
+    standalone, before it knows the payload length.
 
     resync: payload symbols between re-sync markers, or 0 for none. The
     markers are what let a long call survive a jitter-buffer slip; see RESYNC.
@@ -179,13 +255,15 @@ def modulate(bits, fec=True, header=None, resync=None):
     window = tukey(SYMBOL_SAMPLES, alpha=TUKEY_ALPHA)
 
     head = []
+    header_bits = 0
     if header is not None:
-        hcoded, _ = hamming_encode(np.asarray(header, np.uint8)[:HEADER_BITS])
-        # interleave across the 4 codewords so one bad symbol costs each
-        # codeword a single bit, which Hamming can then repair
-        hcoded = hcoded.reshape(4, 7).T.ravel()
-        hsym, _ = _to_symbols(hcoded)
-        head = [_tone(s, t, window) for s in hsym[:HEADER_SYMBOLS]]
+        header = np.asarray(header, np.uint8)
+        # a short header keeps its old meaning: the first 16 bits, one block
+        if len(header) < HEADER_BITS:
+            header = np.concatenate([header, np.zeros(HEADER_BITS - len(header), np.uint8)])
+        header = header[:len(header) - len(header) % HEADER_BITS]
+        header_bits = len(header)
+        head = [_tone(s, t, window) for s in _header_symbols(header)]
 
     # A marker leads EVERY segment, the first one included. The preamble
     # cannot do that job: it alternates between two tones, so its score is
@@ -209,22 +287,7 @@ def modulate(bits, fec=True, header=None, resync=None):
     )
     audio = audio / max(np.max(np.abs(audio)), 1e-12) * 0.7
 
-    info = {
-        "n_payload_bits": int(n_payload),
-        # payload symbols only: the markers are wire overhead and never reach
-        # bits_to_activation, so every existing reader of this field is right
-        "n_symbols": int(len(symbols)),
-        "fec": bool(fec),
-        "hamming_pad": int(ham_pad),
-        "interleave_pad": int(il_pad),
-        "symbol_pad": int(pad),
-        "sample_rate": SAMPLE_RATE,
-        "symbol_ms": SYMBOL_MS,
-        "has_header": header is not None,
-        "resync_interval": int(resync or 0),
-        "wire_symbols": int(len(body)),
-        "duration_seconds": len(audio) / SAMPLE_RATE,
-    }
+    info = frame_info(n_payload, fec=fec, header_bits=header_bits, resync=resync)
     return audio, info
 
 
@@ -284,16 +347,23 @@ def find_marker(audio, expected, span=None, step=8):
     return fine + len(RESYNC) * SYMBOL_SAMPLES
 
 
-def read_header(audio, offset=None):
-    """Decode the 16-bit header standalone, before the payload length is known."""
+def read_header(audio, offset=None, blocks=1):
+    """Decode the header standalone, before the payload length is known.
+
+    blocks: how many 16-bit blocks to read. One is the original header.
+    """
     if offset is None:
         offset = find_preamble(audio)
     start = offset + len(PREAMBLE) * SYMBOL_SAMPLES
-    mags = _symbol_magnitudes(audio, start, HEADER_SYMBOLS)
+    mags = _symbol_magnitudes(audio, start, HEADER_SYMBOLS * blocks)
     symbols = np.argmax(mags, axis=1)
-    bits = ((symbols[:, None] >> np.array([3, 2, 1, 0])) & 1).astype(np.uint8).ravel()
-    bits = bits[:28].reshape(7, 4).T.ravel()
-    return hamming_decode(bits)[:HEADER_BITS], offset
+    out = []
+    for b in range(blocks):
+        chunk = symbols[b * HEADER_SYMBOLS:(b + 1) * HEADER_SYMBOLS]
+        bits = ((chunk[:, None] >> np.array([3, 2, 1, 0])) & 1).astype(np.uint8).ravel()
+        bits = bits[:28].reshape(7, 4).T.ravel()
+        out.append(hamming_decode(bits)[:HEADER_BITS])
+    return np.concatenate(out), offset
 
 
 def demodulate(audio, info, offset=None):
@@ -301,7 +371,7 @@ def demodulate(audio, info, offset=None):
         offset = find_preamble(audio)
     data_start = offset + len(PREAMBLE) * SYMBOL_SAMPLES
     if info.get("has_header"):
-        data_start += HEADER_SYMBOLS * SYMBOL_SAMPLES
+        data_start += int(info.get("header_symbols", HEADER_SYMBOLS)) * SYMBOL_SAMPLES
 
     n_symbols = info.get("n_symbols")
     if n_symbols is None:

@@ -51,6 +51,7 @@ from spectral.common.security import derive_key, scramble
 from spectral.decoder.decrypter import unscramble
 from spectral.decoder.image_reconstructor import activation_to_pixels
 
+import descriptor
 import fsk_codec as fsk
 import image_fsk
 import tel_config as gen_a_cfg
@@ -68,6 +69,17 @@ DEFAULTS = {
     "A": {"size": 24, "gray_levels": 4},
     "B": {"size": 32, "gray_levels": 4},
 }
+
+
+# Every transmission opens with the FSK preamble and a descriptor saying what
+# it is (see descriptor.py), so a bare recording can be rebuilt with nothing
+# else in hand. Generation B carries it in the modem's own header slot;
+# Generation A, which is not FSK, has the same preamble and descriptor played
+# in front of its pilot preamble - the "announcement".
+DESCRIPTOR_BITS = descriptor.BITS * descriptor.COPIES
+ANNOUNCE_SYMBOLS = (len(fsk.PREAMBLE)
+                    + DESCRIPTOR_BITS // fsk.HEADER_BITS * fsk.HEADER_SYMBOLS)
+ANNOUNCE_SAMPLES = ANNOUNCE_SYMBOLS * fsk.SYMBOL_SAMPLES
 
 
 def _check_generation(generation):
@@ -98,12 +110,14 @@ def budget_seconds(target_width, target_height, gray_levels=4, mode="L",
     channels = 3 if mode == "RGB" else 1
 
     if generation == "A":
-        # one frame per column per channel, plus the pilot-only preamble
+        # one frame per column per channel, plus the pilot-only preamble,
+        # plus the announcement in front
         frames = target_width * channels + gen_a_cfg.PREAMBLE_FRAMES
-        return frames * gen_a_cfg.FRAME_SAMPLES / gen_a_cfg.SAMPLE_RATE
+        return (frames * gen_a_cfg.FRAME_SAMPLES + ANNOUNCE_SAMPLES) / gen_a_cfg.SAMPLE_RATE
 
     _, seconds = image_fsk.budget(target_height, target_width,
-                                  channels=channels, levels=gray_levels, fec=fec)
+                                  channels=channels, levels=gray_levels, fec=fec,
+                                  header_bits=DESCRIPTOR_BITS)
     return seconds
 
 
@@ -130,11 +144,36 @@ def encode(source, target_width=None, target_height=None, gray_levels=None,
 
     rows, columns = activation.shape[0], activation.shape[1]
     channels = 3 if mode == "RGB" else 1
+    header = descriptor.pack(generation, rows, columns, mode == "RGB",
+                             gray_levels, security_enabled, fec=fec)
 
     if generation == "A":
         audio, gen_meta = tel_encoder.encode(to_send)
-        # tel_encoder reports the module default; say what was actually used
-        gen_meta["gray_levels"] = gray_levels
+        audio = np.concatenate([fsk.announcement(header), audio])
+        info = _gen_a_info(gen_meta, gray_levels)
+    else:
+        audio, info = image_fsk.encode_image(to_send, levels=gray_levels,
+                                             fec=fec, header=header)
+
+    metadata = _metadata(generation, rows, columns, mode, gray_levels,
+                         security_enabled, info, len(audio) / SAMPLE_RATE)
+    metadata["autocontrast"] = bool(autocontrast)
+    return audio, metadata, activation
+
+
+def _gen_a_info(gen_meta, gray_levels):
+    # tel_encoder reports the module default; say what was actually used
+    gen_meta["gray_levels"] = gray_levels
+    gen_meta["announce_symbols"] = ANNOUNCE_SYMBOLS
+    return gen_meta
+
+
+def _metadata(generation, rows, columns, mode, gray_levels, security_enabled,
+              info, seconds):
+    """The session metadata, the same whether it came from an encode or was
+    rebuilt from a descriptor read off a recording."""
+    channels = 3 if mode == "RGB" else 1
+    if generation == "A":
         wire = {
             "scheme": "multitone-pilot",
             "band": [gen_a_cfg.F_LOW, gen_a_cfg.F_HIGH],
@@ -142,10 +181,9 @@ def encode(source, target_width=None, target_height=None, gray_levels=None,
             "window": "tukey",
             "pilots": 2,
             "lossy": True,
-            "tel": gen_meta,
+            "tel": info,
         }
     else:
-        audio, info = image_fsk.encode_image(to_send, levels=gray_levels, fec=fec)
         payload_bits = int(np.log2(gray_levels)) * rows * columns * channels
         wire = {
             "scheme": "16-fsk",
@@ -156,14 +194,14 @@ def encode(source, target_width=None, target_height=None, gray_levels=None,
             "tones": fsk.M,
             "bits_per_symbol": fsk.BITS_PER_SYMBOL,
             "symbol_ms": fsk.SYMBOL_MS,
-            "fec": "hamming(7,4) + interleave" if fec else "none",
+            "fec": "hamming(7,4) + interleave" if info.get("fec", True) else "none",
             "payload_bits": payload_bits,
             "lossy": False,
             # everything fsk_codec.demodulate() needs, so the WAV decodes alone
             "fsk": info,
         }
 
-    metadata = {
+    return {
         "kind": "image",
         "track": "call",
         "generation": generation,
@@ -177,12 +215,46 @@ def encode(source, target_width=None, target_height=None, gray_levels=None,
         "security_enabled": bool(security_enabled),
         # permutation only - see the module docstring
         "security_scheme": "permutation" if security_enabled else None,
-        "autocontrast": bool(autocontrast),
-        "duration_seconds": round(len(audio) / SAMPLE_RATE, 3),
+        "self_describing": True,
+        "duration_seconds": round(seconds, 3),
         **wire,
     }
 
-    return audio, metadata, activation
+
+def identify(audio, offset):
+    """The metadata a recording describes about itself, or None.
+
+    `offset` is where the FSK preamble starts (voip.sync finds it). None means
+    no descriptor checked out there: a transmission from before descriptors
+    existed, a damaged header, or not one of ours - and the caller then has to
+    be told which send it is instead.
+    """
+    bits, _ = fsk.read_header(audio, int(offset),
+                              blocks=DESCRIPTOR_BITS // fsk.HEADER_BITS)
+    found = descriptor.unpack(bits)
+    if found is None:
+        return None
+
+    generation = found["generation"]
+    rows, columns = found["rows"], found["cols"]
+    levels = found["gray_levels"]
+    mode = "RGB" if found["colour"] else "L"
+    channels = 3 if found["colour"] else 1
+
+    if generation == "A":
+        info = _gen_a_info(tel_encoder.describe(rows, columns, channels), levels)
+        seconds = info["duration_seconds"] + ANNOUNCE_SAMPLES / SAMPLE_RATE
+    else:
+        payload = int(np.log2(levels)) * rows * columns * channels
+        info = fsk.frame_info(payload, fec=found["fec"], header_bits=DESCRIPTOR_BITS)
+        info["shape"] = [rows, columns] + ([3] if channels == 3 else [])
+        info["gray_levels"] = levels
+        seconds = info["duration_seconds"]
+
+    metadata = _metadata(generation, rows, columns, mode, levels,
+                         found["locked"], info, seconds)
+    metadata["descriptor_copy"] = found["copy"]
+    return metadata
 
 
 def decode(audio, metadata, caller=None, receiver=None, pin=None,
@@ -199,6 +271,13 @@ def decode(audio, metadata, caller=None, receiver=None, pin=None,
         if not gen_meta:
             raise ValueError("This file is missing its Generation A header, so "
                              "there is nothing to rebuild from it.")
+        if gen_meta.get("announce_symbols"):
+            # skip the FSK announcement; the half frame of silence in front
+            # gives the pilot search room to find the edge if the call's
+            # timing put it a little early
+            start = fsk.find_preamble(audio)
+            body = audio[start + int(gen_meta["announce_symbols"]) * fsk.SYMBOL_SAMPLES:]
+            audio = np.concatenate([np.zeros(gen_meta["frame_samples"] // 2), body])
         activation = tel_decoder.decode(audio, gen_meta)
         # the channel does not preserve level, so the result is continuous;
         # snap it back onto the gray steps that were actually transmitted

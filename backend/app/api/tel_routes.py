@@ -104,11 +104,33 @@ def _session(session_id, kinds, missing="That transmission has expired. Send it 
     return session
 
 
+def _same_picture(a, b):
+    keys = ("generation", "rows", "columns", "mode", "gray_levels")
+    return bool(a and b) and all(a.get(k) == b.get(k) for k in keys)
+
+
 def _reference(body, session):
-    """The metadata to decode with: the named send, or this session's own."""
+    """The metadata to decode with, and the picture to score against.
+
+    A recording that described itself is decoded with what it said, whatever
+    send is named: that is what was on the wire. A named send then only
+    supplies the picture to compare with, and only if it is the same geometry.
+    """
+    ref = None
     if getattr(body, "reference_id", None):
-        ref = _session(body.reference_id, {"tel-send"},
-                       "That transmission has expired. Send it again.")
+        ref = session_store.get(body.reference_id)
+        if not ref or ref.get("kind") != "tel-send":
+            ref = None
+
+    if session.get("self_described"):
+        metadata = session.get("metadata")
+        sent = (ref.get("sent_array")
+                if ref and _same_picture(ref.get("metadata"), metadata) else None)
+        return metadata, sent
+
+    if getattr(body, "reference_id", None):
+        if ref is None:
+            raise HTTPException(404, "That transmission has expired. Send it again.")
         return ref.get("metadata"), ref.get("sent_array")
     return session.get("metadata"), session.get("sent_array")
 
@@ -219,8 +241,9 @@ def call(body: CallBody):
 
 @router.post("/upload")
 async def upload(file: UploadFile = File(...)):
-    """A recording of a real call. It carries no header, so it has to be
-    matched to the send it came from before it can be rebuilt."""
+    """A recording of a real call. It opens with a descriptor saying what it
+    is, so it rebuilds on its own; one from before descriptors has to be
+    matched to the send it came from instead."""
     raw = await _read_upload(file, MAX_AUDIO_UPLOAD_BYTES)
     try:
         audio, source = tel.read_any_audio(raw, file.filename)
@@ -230,14 +253,17 @@ async def upload(file: UploadFile = File(...)):
         raise HTTPException(400, f"That audio could not be read: {exc}. Supported: "
                                  f"WAV, and .mka/.m4a/.mp4/.caf when ffmpeg is installed.")
 
+    metadata = tel.identify(audio)
     session_id = session_store.create({
         "kind": "tel-upload",
         "audio": audio,
         "sample_rate": tel.SAMPLE_RATE,
         "wav_bytes": tel.to_wav_bytes(audio),
+        "metadata": metadata,
+        "self_described": metadata is not None,
     })
     return {"session_id": session_id, **source,
-            **tel.run_inspect(audio, None)}
+            **tel.run_inspect(audio, metadata, self_described=metadata is not None)}
 
 
 @router.post("/inspect")
@@ -247,7 +273,8 @@ def inspect(body: InspectBody):
     metadata, _ = _reference(body, session)
     try:
         return {"session_id": body.session_id,
-                **tel.run_inspect(session["audio"], metadata)}
+                **tel.run_inspect(session["audio"], metadata,
+                                  self_described=bool(session.get("self_described")))}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:

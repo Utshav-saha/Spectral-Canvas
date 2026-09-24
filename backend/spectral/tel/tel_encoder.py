@@ -105,24 +105,48 @@ def encode(activation,
     if peak > 0:
         audio = audio * (target_peak / peak)
 
-    metadata = {
+    metadata = describe(rows, columns, len(channels), sample_rate=sample_rate,
+                        frame_samples=frame_samples, f_low=f_low, f_high=f_high,
+                        pilot_low=pilot_low, pilot_high=pilot_high,
+                        pilot_amplitude=pilot_amplitude, tukey_alpha=tukey_alpha,
+                        preamble_frames=preamble_frames)
+    return audio, metadata
+
+
+def describe(rows, columns, channels=1,
+             sample_rate=cfg.SAMPLE_RATE,
+             frame_samples=cfg.FRAME_SAMPLES,
+             f_low=cfg.F_LOW,
+             f_high=cfg.F_HIGH,
+             pilot_low=cfg.PILOT_LOW,
+             pilot_high=cfg.PILOT_HIGH,
+             pilot_amplitude=cfg.PILOT_AMPLITUDE,
+             tukey_alpha=cfg.TUKEY_ALPHA,
+             preamble_frames=cfg.PREAMBLE_FRAMES):
+    """encode()'s metadata from the geometry alone, with no audio made.
+
+    Everything else is a constant of this module, so a receiver that has read
+    rows, columns and channels off the wire can rebuild the rest.
+    """
+    bin_width = sample_rate / frame_samples
+    frames = preamble_frames + columns * channels
+    return {
         "sample_rate": sample_rate,
         "frame_samples": frame_samples,
         "bin_width": bin_width,
         "rows": rows,
         "columns": columns,
-        "mode": mode,
-        "channels": len(channels),
-        "row_frequencies": freqs.tolist(),
-        "pilot_low": p_lo,
-        "pilot_high": p_hi,
+        "mode": "RGB" if channels == 3 else "L",
+        "channels": channels,
+        "row_frequencies": row_frequencies(rows, f_low, f_high, bin_width).tolist(),
+        "pilot_low": snap(pilot_low, bin_width),
+        "pilot_high": snap(pilot_high, bin_width),
         "pilot_amplitude": pilot_amplitude,
         "tukey_alpha": tukey_alpha,
         "preamble_frames": preamble_frames,
         "gray_levels": cfg.GRAY_LEVELS,
-        "duration_seconds": len(audio) / sample_rate,
+        "duration_seconds": frames * frame_samples / sample_rate,
     }
-    return audio, metadata
 
 
 def to_int16_wav(audio, path, sample_rate=cfg.SAMPLE_RATE):

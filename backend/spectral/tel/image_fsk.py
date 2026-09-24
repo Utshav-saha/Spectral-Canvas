@@ -54,9 +54,9 @@ def bits_to_activation(bits, shape, levels=4):
     return (values / (levels - 1)).reshape(shape)
 
 
-def encode_image(activation, levels=4, fec=True):
+def encode_image(activation, levels=4, fec=True, header=None):
     bits = activation_to_bits(activation, levels)
-    audio, info = fsk.modulate(bits, fec=fec)
+    audio, info = fsk.modulate(bits, fec=fec, header=header)
     info["shape"] = list(activation.shape)
     info["gray_levels"] = levels
     return audio, info
@@ -67,16 +67,14 @@ def decode_image(audio, info):
     return bits_to_activation(bits, tuple(info["shape"]), info["gray_levels"])
 
 
-def budget(rows, columns, channels=1, levels=4, fec=True):
-    """How long will this take on the wire?"""
+def budget(rows, columns, channels=1, levels=4, fec=True, header_bits=0):
+    """How long will this take on the wire?
+
+    The re-sync markers ride on the wire too - one leading every segment,
+    which is what keeps a long call decodable at all - and fsk.frame_info
+    counts them the same way modulate() lays them down.
+    """
     bpp = _bits_per_pixel(levels)
     payload = rows * columns * channels * bpp
-    coded = payload * (7 / 4) if fec else payload
-    symbols = np.ceil(coded / fsk.BITS_PER_SYMBOL)
-    # the re-sync markers ride on the wire too: one leading every segment,
-    # which is what keeps a long call decodable at all
-    markers = 0
-    if fsk.RESYNC_INTERVAL:
-        markers = int(np.ceil(symbols / fsk.RESYNC_INTERVAL))
-    symbols += len(fsk.PREAMBLE) + markers * len(fsk.RESYNC)
-    return payload, float(symbols * fsk.SYMBOL_MS / 1000.0)
+    info = fsk.frame_info(payload, fec=fec, header_bits=header_bits)
+    return payload, float(info["duration_seconds"])

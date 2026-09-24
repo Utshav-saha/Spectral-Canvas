@@ -1527,9 +1527,11 @@ function CallReceive({ reference, model }) {
     setBusy(true);
     try {
       const uploaded = await tel.upload(f);
-      /* A recording carries no header of its own. If the Send tab has a
-         transmission open, inspect against its settings; otherwise say so. */
-      const response = reference
+      /* A recording says what it is in its opening descriptor, and then
+         needs nothing else. One from before descriptors carries no settings,
+         so it is inspected against the Send tab's transmission if there is
+         one; otherwise the upload's message says what to do. */
+      const response = !uploaded.self_described && reference
         ? {
             ...uploaded,
             ...(await tel.inspect({
@@ -1539,6 +1541,8 @@ function CallReceive({ reference, model }) {
           }
         : uploaded;
       setFound(response);
+      // the descriptor says whether a lock was used, so ask for the numbers
+      if (response.found && response.locked) setKeyOn(true);
       setWave(await tel.waveform(uploaded.session_id));
     } catch (e) {
       setError(e.message);
@@ -1553,6 +1557,8 @@ function CallReceive({ reference, model }) {
     try {
       const response = await tel.receive({
         session_id: found.session_id,
+        /* still sent when the recording described itself: the backend then
+           only uses it to score against, and only if it is the same picture */
         reference_id: reference?.session_id,
         security_enabled: keyOn,
         caller: keyOn ? caller : null,
@@ -1636,17 +1642,6 @@ function CallReceive({ reference, model }) {
 
             {busy && <p className="field-note">Reading the recording…</p>}
 
-            {file && !reference && !busy && (
-              <div className="alert alert-error call-alert">
-                <p>
-                  A recording carries no header, so its grid, generation and
-                  level count have to come from the transmission it is a
-                  recording of. Encode one on the Send tab first, then come back
-                  — this page keeps it.
-                </p>
-              </div>
-            )}
-
             {found && (
               <div className="rcv-stack">
                 <div className={`alert ${alertKind}`}>
@@ -1674,6 +1669,16 @@ function CallReceive({ reference, model }) {
                     <dl className="call-readout">
                       <dt>Generation</dt>
                       <dd>{found.generation ?? "—"}</dd>
+                      <dt>Picture</dt>
+                      <dd>
+                        {found.rows}&times;{found.columns},{" "}
+                        {found.gray_levels} levels
+                        {found.mode === "RGB" ? ", colour" : ""}
+                      </dd>
+                      <dt>Settings from</dt>
+                      <dd>
+                        {found.self_described ? "the recording" : "the Send tab"}
+                      </dd>
                       <dt>Starts at</dt>
                       <dd>{found.offset_seconds} s</dd>
                       <dt>Preamble</dt>
