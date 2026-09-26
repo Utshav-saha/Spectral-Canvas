@@ -107,3 +107,13 @@ jupyter_workspace/
 .env.test.local
 .env.production.local
 *.pem
+
+# =========================
+# Claude Code and docs
+# =========================
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+**/CLAUDE.md
+**/CLAUDE.local.md
+docs/
