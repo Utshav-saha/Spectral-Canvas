@@ -1,29 +1,8 @@
-"""
-Telephony-band decoder.
-
-Replaces synchronizer.synchronize + stft_decoder.decode +
-image_reconstructor.recover_activation.
-
-Two jobs:
-
-  SYNC   Your find_start_by_energy finds the first frame louder than 10% of
-         peak. Over a codec the onset is soft (encoder ramp-up, comfort
-         noise) and you can easily land half a frame off, which smears every
-         column into its neighbour. Here we use the pilots instead: slide the
-         analysis grid and keep the offset where total pilot energy peaks.
-         A correctly aligned window sees a clean bin-centred pilot; a
-         misaligned one straddles two frames' tapers and measures less.
-
-  LEVEL  Your recover_activation divides by normalization_gain * sum(hann).
-         That assumes the channel preserved absolute amplitude. It did not.
-         Here every row magnitude is divided by the interpolated pilot
-         magnitude from the SAME frame, so gain, AGC drift and the channel's
-         spectral tilt all cancel.
-"""
+# Decoder for gen A
 
 import numpy as np
 
-import tel_config as cfg
+import tel_config as config
 
 
 def load_audio(path):
@@ -36,12 +15,11 @@ def load_audio(path):
     return sample_rate, audio.astype(np.float64)
 
 
-def _bins(freqs, bin_width):
+def calc_bin(freqs, bin_width):
     return np.round(np.asarray(freqs) / bin_width).astype(int)
 
 
-def _spectra(audio, start, n_frames, frame_samples):
-    """Cut n_frames starting at `start`, Hann-analyse, return |rfft| matrix."""
+def extract_spectrum(audio, start, n_frames, frame_samples):
     need = n_frames * frame_samples
     segment = audio[start:start + need]
     if len(segment) < need:
@@ -64,10 +42,9 @@ def coarse_start(audio, frame_samples, energy_ratio=0.15):
 
 
 def pilot_align(audio, metadata, search_frames=8):
-    """Find the sample offset of the first preamble frame."""
     frame_samples = metadata["frame_samples"]
     bin_width = metadata["bin_width"]
-    lo_bin, hi_bin = _bins([metadata["pilot_low"], metadata["pilot_high"]],
+    lo_bin, hi_bin = calc_bin([metadata["pilot_low"], metadata["pilot_high"]],
                            bin_width)
 
     rough = coarse_start(audio, frame_samples)
@@ -77,7 +54,7 @@ def pilot_align(audio, metadata, search_frames=8):
         return max(0, rough)
 
     def score(offset):
-        spectra = _spectra(audio, offset, search_frames, frame_samples)
+        spectra = extract_spectrum(audio, offset, search_frames, frame_samples)
         return float(spectra[:, lo_bin].sum() + spectra[:, hi_bin].sum())
 
     coarse_grid = range(lo, hi, 8)
@@ -94,7 +71,7 @@ def _column_offsets(audio, start, n_frames, metadata, jitter=24):
     """
     frame_samples = metadata["frame_samples"]
     bin_width = metadata["bin_width"]
-    lo_bin, hi_bin = _bins([metadata["pilot_low"], metadata["pilot_high"]],
+    lo_bin, hi_bin = calc_bin([metadata["pilot_low"], metadata["pilot_high"]],
                            bin_width)
     analysis = np.hanning(frame_samples)
 
@@ -112,7 +89,7 @@ def _column_offsets(audio, start, n_frames, metadata, jitter=24):
             if s > best_score:
                 best_score, best = s, d
         offsets[i] = base + best
-        drift += best          # carry the correction forward
+        drift += best          
     return offsets
 
 
@@ -126,8 +103,8 @@ def decode(audio, metadata, per_column_sync=True):
     preamble = metadata["preamble_frames"]
     pilot_amp = metadata["pilot_amplitude"]
 
-    row_bins = _bins(metadata["row_frequencies"], bin_width)
-    lo_bin, hi_bin = _bins([metadata["pilot_low"], metadata["pilot_high"]],
+    row_bins = calc_bin(metadata["row_frequencies"], bin_width)
+    lo_bin, hi_bin = calc_bin([metadata["pilot_low"], metadata["pilot_high"]],
                            bin_width)
     f_lo = metadata["pilot_low"]
     f_hi = metadata["pilot_high"]
@@ -156,14 +133,13 @@ def decode(audio, metadata, per_column_sync=True):
     k_lo = np.maximum(spectra[:, lo_bin] / pilot_amp, 1e-12)
     k_hi = np.maximum(spectra[:, hi_bin] / pilot_amp, 1e-12)
 
-    # log-linear interpolation of gain across frequency, per column
-    w = (row_f - f_lo) / (f_hi - f_lo)                    # (rows,)
+    w = (row_f - f_lo) / (f_hi - f_lo)                    
     log_k = (np.log(k_lo)[:, None] * (1 - w)[None, :]
-             + np.log(k_hi)[:, None] * w[None, :])        # (n_data, rows)
+             + np.log(k_hi)[:, None] * w[None, :])       
     k = np.exp(log_k)
 
-    magnitudes = spectra[:, row_bins]                     # (n_data, rows)
-    activation = np.clip(magnitudes / k, 0.0, 1.0).T      # (rows, n_data)
+    magnitudes = spectra[:, row_bins]                    
+    activation = np.clip(magnitudes / k, 0.0, 1.0).T     
 
     if n_channels == 1:
         return activation
@@ -173,12 +149,12 @@ def decode(audio, metadata, per_column_sync=True):
     )
 
 
-def quantize(activation, levels=cfg.GRAY_LEVELS):
+def quantize(activation, levels=config.GRAY_LEVELS):
     if not levels:
         return activation
     return np.round(activation * (levels - 1)) / (levels - 1)
 
 
-def to_pixels(activation, levels=cfg.GRAY_LEVELS):
+def to_pixels(activation, levels=config.GRAY_LEVELS):
     activation = quantize(activation, levels)
     return np.clip(np.rint((1.0 - activation) * 255.0), 0, 255).astype(np.uint8)

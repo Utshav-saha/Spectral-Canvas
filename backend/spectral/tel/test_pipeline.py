@@ -8,14 +8,13 @@ Run it to see where the baseline sits.
 
 import numpy as np
 
-import tel_config as cfg
+import tel_config as config
 import tel_encoder
 import tel_decoder
 import channel_sim
 
 
 def test_image(rows, columns, levels):
-    """A deterministic test pattern: gradient, blocks, diagonal, border."""
     img = np.zeros((rows, columns))
     for r in range(rows):
         for c in range(columns):
@@ -28,8 +27,8 @@ def test_image(rows, columns, levels):
     return np.round(img * (levels - 1)) / (levels - 1)
 
 
-def run(rows=cfg.ROWS, columns=cfg.COLUMNS, levels=cfg.GRAY_LEVELS,
-        f_low=cfg.F_LOW, f_high=cfg.F_HIGH, loss=0.02, seed=0,
+def run(rows=config.ROWS, columns=config.COLUMNS, levels=config.GRAY_LEVELS,
+        f_low=config.F_LOW, f_high=config.F_HIGH, loss=0.02, seed=0,
         per_column_sync=True, clean=False, verbose=True):
 
     source = test_image(rows, columns, levels)

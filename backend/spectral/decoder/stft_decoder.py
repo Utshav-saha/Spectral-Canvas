@@ -5,8 +5,6 @@ from synchronizer import load_audio, synchronize
 
 def load_metadata(metadata_path="metadata.json"):
 
-    # this file is the key to the cipher - the decoder learns every constant
-    # from here and never imports anything from the encoder
     with open(metadata_path) as file:
         metadata = json.load(file)
 
@@ -15,15 +13,15 @@ def load_metadata(metadata_path="metadata.json"):
 
 def frequencies_to_bins(row_frequencies, frame_samples, sample_rate):
 
-    # f_max must be under the Nyquist frequency, same guard the encoder uses
+    # f_max-ke Nyquist frequency-r niche thakte hobe, encoder-o eki guard use kore
     if max(row_frequencies) >= sample_rate / 2:
         raise ValueError("row frequencies should be less than sample_rate/2")
 
-    # an N-point FFT of a signal sampled at f_s spreads its bins f_s/N apart
-    # here 44100 / 4410 = 10.0 Hz per bin
+    
+    # ekhane 44100 / 4410 = proti bin-e 10.0 Hz
     bin_width = sample_rate / frame_samples
 
-    # k_r = argmin |f[k] - f_r| , which is just f_r rounded to the nearest bin
+    #f_r-ke kachakachi bin-e round kora
     bins = np.round(np.array(row_frequencies) / bin_width).astype(int)
 
     return bins
@@ -31,8 +29,7 @@ def frequencies_to_bins(row_frequencies, frame_samples, sample_rate):
 
 def split_into_frames(audio, frame_samples, columns):
 
-    # the encoder wrote frames back to back with no overlap, so column c is
-    # exactly samples [c*N, (c+1)*N) - one reshape lines them all up
+    # encoder frame-gulo kono overlap chara por por ache, tai column c holo
     needed = columns * frame_samples
 
     if len(audio) < needed:
@@ -52,15 +49,14 @@ def decode(audio, metadata):
 
     frames = split_into_frames(audio, frame_samples, columns)
 
-    # one real FFT per column - because window == hop == 4410 this IS the STFT,
-    # just without any of the guessing a generic STFT has to do
-    # rfft only returns the positive frequencies, which is all we need
+    # proti column-e ekta kore real FFT - window == hop == 4410 
+    # rfft shudhu positive frequency return kore, otai dorkar
     spectrum = np.abs(np.fft.rfft(frames, axis=1))
 
     bins = frequencies_to_bins(row_frequencies, frame_samples, sample_rate)
 
-    # keep only the bins our rows live in, then transpose so the matrix
-    # comes out shaped like the image: (rows, columns)
+    # shudhu amader row-gulo je bin-e ache segulo tarpor transpose jate
+    # matrix image er moto hoy: (rows, columns)
     magnitude_matrix = spectrum[:, bins].T
 
     return magnitude_matrix
@@ -79,8 +75,6 @@ if __name__ == "__main__":
     print("loudest cell:", round(magnitude_matrix.max(), 3))
     print("quietest cell:", round(magnitude_matrix.min(), 6))
 
-    # split the cells into "tone was on" and "tone was off" at the halfway mark
-    # the gap between the two averages is the margin the threshold lives in
     active = magnitude_matrix[magnitude_matrix >= magnitude_matrix.max() / 2]
     silent = magnitude_matrix[magnitude_matrix < magnitude_matrix.max() / 2]
 

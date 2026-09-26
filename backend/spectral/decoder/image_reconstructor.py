@@ -46,7 +46,6 @@ def recover_activation(magnitude_matrix, metadata):
     For a bin-centred sinusoid:
         |X[k]| approximately A * g * sum(hann) / 2
 
-    Therefore:
         A approximately 2*|X[k]| / (g*sum(hann))
     """
     gain = metadata.get("normalization_gain")

@@ -1,6 +1,5 @@
 """
 Simulate what a SIP call does to your audio, offline.
-
 Stages, in the order the real thing applies them:
 
   1. random leading silence        (you never know when recording started)
@@ -8,9 +7,6 @@ Stages, in the order the real thing applies them:
   3. packet loss + concealment     (lost 20 ms frame -> previous one repeated)
   4. AGC / level change            (unknown, slowly varying gain)
   5. background noise floor        (comfort noise, room, ADC)
-
-Run your encoder -> this -> your decoder and you get realistic numbers in
-about a second per trial, instead of placing a call for every experiment.
 """
 
 import os

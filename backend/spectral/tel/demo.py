@@ -1,11 +1,5 @@
-"""
-Full demonstration:  image -> FSK audio -> simulated call -> image.
 
-    python3 demo.py
-
-Also writes tx.wav (8 kHz, 16-bit mono) which you can feed straight into
-channel_sim for the simulated call.
-"""
+# Full demonstration:  image -> FSK audio -> simulated call -> image.
 
 import numpy as np
 
